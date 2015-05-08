@@ -1,4 +1,4 @@
-module DrawWorld where
+module Game.Robo.Core.DrawWorld where
 
 import Graphics.UI.SDL as SDL
 import Graphics.UI.SDL.Primitives
@@ -14,9 +14,9 @@ import Control.Monad.Reader
 import Data.Traversable
 import Control.Applicative ((<$>))
 
-import Types
-import Maths
-import DrawBot
+import Game.Robo.Core
+import Game.Robo.Core.DrawBot
+import Game.Robo.Maths
 
 drawBullet :: Surface -> Bullet -> DrawWorld
 drawBullet surface bul = do

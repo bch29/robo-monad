@@ -1,10 +1,10 @@
-module Maths where
+module Game.Robo.Maths where
 
 import Lens.Family2
 import Data.Vector.V2
 import Data.Vector.Class
 
-import Types
+import Game.Robo.Core
 
 -----------------------------------
 -- VECTORS

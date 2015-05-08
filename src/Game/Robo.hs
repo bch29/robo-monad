@@ -1,13 +1,27 @@
 {-# LANGUAGE RankNTypes #-}
-
-module RoboMonad
+module Robo
   -- Re-exported
-  ( BattleRules (..)
+  ( BattleRules (..), ruleMaxThrust, ruleMaxAngThrust, ruleMaxGunSpeed, ruleMaxFirePower, ruleMinFirePower
+                    , ruleMass, ruleDriveFriction, ruleTurnFriction, ruleBotSize, ruleGunSize
+                    , ruleBulletSpeed, ruleWorldSize, ruleTickTime
   , BotSpec (..)
   , ScanData
   , Robo
   , vec, rect
   , defaultRules
+
+  , runWorld
+
+  , getRandom
+  , getRandomR
+
+  , module Lens.Family2
+  , module Lens.Family2.State
+  , module Lens.Family2.TH
+
+  , module Control.Monad.State.Class
+  , module Control.Monad.Reader.Class
+
   -- types
   , Scalar
   , Angle
@@ -28,14 +42,19 @@ module RoboMonad
     where
 
 import Lens.Family2
+import Lens.Family2.TH
 import Lens.Family2.State
 
 import Control.Monad.Writer
 import Control.Monad.Reader
+import Control.Monad.Random
 
-import Types
-import Maths
-import Core
+import Control.Monad.Reader.Class
+import Control.Monad.State.Class
+
+import Game.Robo.Maths
+import Game.Robo.Core
+import Game.Robo.Core.World
 
 ---------------------------------
 --  TYPES
@@ -118,6 +137,12 @@ blogShow = blog . show
 ---------------------------------
 --  UTILITY FUNCTIONS
 ---------------------------------
+
+instance MonadRandom BotWrapper where
+  getRandom   = BotWrapper getRandom
+  getRandoms  = BotWrapper getRandoms
+  getRandomR  = BotWrapper . getRandomR
+  getRandomRs = BotWrapper . getRandomRs
 
 withBot :: Bot a -> Robo s a
 withBot bot = lift (BotWrapper bot)

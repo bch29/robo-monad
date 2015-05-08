@@ -1,4 +1,12 @@
-module Core where
+module Game.Robo.Core
+  ( defaultRules
+  , evalBot
+  , evalWorld
+  , applyBot
+  , runRobo
+  , runDrawing
+  , module Game.Robo.Core.Types )
+    where
 
 import Lens.Family2
 import Lens.Family2.State
@@ -11,14 +19,15 @@ import Control.Monad
 import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Random
 
 import Data.Vector.Class
 import Data.List
 import Data.Maybe
 
-import Types
-import Maths
-import DrawWorld
+import Game.Robo.Core.Types
+import Game.Robo.Core.DrawWorld
+import Game.Robo.Maths
 
 type UpdateChan = Chan (BotState, WorldState, Double, Bool)
 type ResponseChan = Chan (BotID, BotState, [Bullet])
@@ -26,7 +35,7 @@ type ResponseChan = Chan (BotID, BotState, [Bullet])
 defaultRules :: BattleRules
 defaultRules =
   BattleRules { _ruleMaxThrust     = 250
-              , _ruleMaxAngThrust  = 16
+              , _ruleMaxAngThrust  = 32
               , _ruleMaxGunSpeed   = 2
               , _ruleMaxFirePower  = 2
               , _ruleMinFirePower  = 0.5
@@ -41,19 +50,19 @@ defaultRules =
               }
 
 -- | Evaluates an action in the Bot monad, returning the resulting state and message log.
-evalBot :: Bot a -> BattleRules -> BotState -> (a, BotState, [String])
+evalBot :: Bot a -> StdGen -> BattleRules -> BotState -> (a, BotState, [String])
 evalBot = evalGameMonad
 
-evalWorld :: World a -> BattleRules -> WorldState -> (a, WorldState, [String])
+evalWorld :: World a -> StdGen -> BattleRules -> WorldState -> (a, WorldState, [String])
 evalWorld = evalGameMonad
 
 -- | Evaluate a Bot monadic action in the context of its world.
-applyBot :: BotID -> Bot a -> World a
-applyBot bid bot = do
+applyBot :: StdGen -> BotID -> Bot a -> World a
+applyBot gen bid bot = do
   rules <- ask
   botStates <- use wldBots
   let (prevStates, targetState : postStates) = splitAt (bid - 1) botStates
-      (result, newState, log) = evalBot bot rules targetState
+      (result, newState, log) = evalBot bot gen rules targetState
 
   wldBots .= prevStates ++ newState : postStates
   tell log
@@ -68,9 +77,10 @@ runDrawing :: DrawWorld -> BattleRules -> WorldState -> IO ()
 runDrawing drawing rules state = runReaderT (evalStateT drawing state) rules
 
 -- | Evaluates an action in a game monad.
-evalGameMonad :: GameMonad s a -> BattleRules -> s -> (a, s, [String])
-evalGameMonad game rules state = (res, state', log)
-  where noWriter = runWriterT game
+evalGameMonad :: GameMonad s a -> StdGen -> BattleRules -> s -> (a, s, [String])
+evalGameMonad game gen rules state = (res, state', log)
+  where noRandom = evalRandT game gen
+        noWriter = runWriterT noRandom
         noReader = runReaderT noWriter rules
         ((res, log), state') = runState noReader state
 

@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, ExistentialQuantification, GeneralizedNewtypeDeriving #-}
 
-module Types
+module Game.Robo.Core.Types
   -- ( Bot
   -- , Robo (..)
   -- , BotSpec (..)
@@ -14,6 +14,8 @@ module Types
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Writer
+import Control.Monad.Random
+import System.Random
 
 import Lens.Family2
 import Lens.Family2.TH
@@ -36,13 +38,13 @@ type Bot = GameMonad BotState
 
 -- | Wraps the Bot monad to prevent user access to internals.
 newtype BotWrapper a = BotWrapper { runBotWrapper :: Bot a }
-  deriving Monad
+  deriving (Monad, Functor, Applicative)
 
 -- | The internal world monad.
 type World = GameMonad WorldState
 
 -- | There is a lot shared between World and Bot, so why not factor it out?
-type GameMonad s = WriterT [String] (ReaderT BattleRules (State s))
+type GameMonad s = RandT StdGen (WriterT [String] (ReaderT BattleRules (State s)))
 
 ---------------------------------
 --  Robot State

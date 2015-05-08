@@ -1,4 +1,4 @@
-module World where
+module Game.Robo.Core.World where
 
 import Graphics.UI.SDL as SDL hiding (Rect)
 import Graphics.UI.SDL.TTF as TTF
@@ -14,6 +14,8 @@ import Control.Monad
 import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Random
+import System.Random
 
 import Data.Array.MArray
 import Data.Array.IO
@@ -22,11 +24,10 @@ import Data.Vector.Class
 import Data.List
 import Data.Maybe
 
-import Types
-import Core
-import Bot
-import Maths
-import DrawWorld
+import Game.Robo.Core
+import Game.Robo.Core.Bot
+import Game.Robo.Core.DrawWorld
+import Game.Robo.Maths
 
 -- | Get the SDL ticks in seconds.
 getTicksSeconds :: IO Double
@@ -78,28 +79,29 @@ stepBullets passed = do
   wldBullets .= filter (isBulletInArena size) bullets'
 
 -- | Handles all bullet collisions.
-handleBulletCollisions :: World ()
-handleBulletCollisions = do
+handleBulletCollisions :: StdGen -> World ()
+handleBulletCollisions rgen = do
     -- get the list of all bot IDs
     bids <- gets $ toListOf (wldBots.traverse.botID)
-    handler bids
-  where handler [] = return ()
+    handler rgen bids
+  where handler _ [] = return ()
         -- step through the bot ids
-        handler (bid:bids) = do
+        handler gen (bid:bids) = do
           -- get all the bullets
           bullets <- use wldBullets
           -- see if the current bot is colliding with any of the bullets
-          bulletsm <- applyBot bid $ mapM testBulletHit bullets
+          bulletsm <- applyBot gen bid $ mapM testBulletHit bullets
           -- remove the bullets that have collided
           wldBullets .= catMaybes bulletsm
           -- keep looping
-          handler bids
+          let (_, gen') = split gen
+          handler gen' bids
 
 -- | Steps the world (minus the bots) forward a tick.
-stepWorld :: Double -> World ()
-stepWorld passed = do
+stepWorld :: StdGen -> Double -> World ()
+stepWorld gen passed = do
   stepBullets passed
-  handleBulletCollisions
+  handleBulletCollisions gen
 
 mainLoop :: Surface -> BattleRules -> WorldState -> [UpdateChan] -> ResponseChan -> IO ()
 mainLoop surface rules worldState updateChan responseChan = do
@@ -130,7 +132,9 @@ mainLoop surface rules worldState updateChan responseChan = do
         state' <- updateWorldWithResponses responseChan numBots state
 
         -- do further world updates
-        let (_, state'', log) = evalWorld (stepWorld passed) rules state'
+        gen1 <- newStdGen
+        gen2 <- newStdGen
+        let (_, state'', log) = evalWorld (stepWorld gen2 passed) gen1 rules state'
 
         -- draw the world
         runDrawing (drawWorld surface) rules state''

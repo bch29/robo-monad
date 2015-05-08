@@ -1,4 +1,4 @@
-module Bot where
+module Game.Robo.Core.Bot where
 
 import Lens.Family2
 import Lens.Family2.State
@@ -11,6 +11,8 @@ import Control.Monad
 import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Random
+import System.Random
 
 import Data.Array.MArray
 import Data.Array.IO
@@ -19,10 +21,9 @@ import Data.Vector.Class
 import Data.List
 import Data.Maybe
 
-import Types
-import Core
-import Maths
-import DrawWorld
+import Game.Robo.Core
+import Game.Robo.Maths
+import Game.Robo.Core.DrawWorld
 
 initialBotState ::  Scalar -> BotID -> Vec -> BotState
 initialBotState mass bid pos =
@@ -135,8 +136,9 @@ runBot rules spec state1 bid updateChan responseChan =
   case spec of
     (BotSpec name initialState onInit' onTick' onScan') ->
       do -- run the robot's initialisation method
+         gen <- newStdGen
          let ((_, userState1), state1', log1) =
-               evalBot (runRobo onInit' initialState) rules state1
+               evalBot (runRobo onInit' initialState) gen rules state1
          writeLog name log1
          -- send the initialised BotState to the main thread
          writeChan responseChan (bid, state1', [])
@@ -148,6 +150,7 @@ runBot rules spec state1 bid updateChan responseChan =
              (botState, worldState, passed, doTick) <- readChan updateChan
 
              -- update the robot state
+             gen <- newStdGen
              let bot = do
                    bullets <- stepBot passed doTick
                    (_, userState') <-
@@ -156,7 +159,7 @@ runBot rules spec state1 bid updateChan responseChan =
                        else return ((), userState)
                    return (bullets, userState')
 
-                 ((bullets, userState'), botState', log) = evalBot bot rules botState
+                 ((bullets, userState'), botState', log) = evalBot bot gen rules botState
 
              -- print out the log to the console for now
              writeLog name log
