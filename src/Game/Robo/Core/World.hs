@@ -26,7 +26,7 @@ import Data.Maybe
 
 import Game.Robo.Core
 import Game.Robo.Core.Bot
-import Game.Robo.Core.DrawWorld
+import Game.Robo.Draw.DrawWorld
 import Game.Robo.Maths
 
 -- | Get the SDL ticks in seconds.
@@ -75,7 +75,7 @@ stepBullets :: Double -> World ()
 stepBullets passed = do
   bullets <- use wldBullets
   let bullets' = map (updateBullet passed) bullets
-  size <- asks (view ruleWorldSize)
+  size <- asks (view ruleArenaSize)
   wldBullets .= filter (isBulletInArena size) bullets'
 
 -- | Handles all bullet collisions.
@@ -153,7 +153,7 @@ runWorld rules specs = withInit [InitEverything] $ do
 
   -- initialise the game
   -- make the window
-  let screenSize = rules^.ruleWorldSize
+  let screenSize = rules^.ruleArenaSize
       (width, height) = (round (screenSize^.vX), round (screenSize^.vY))
   screen <- setVideoMode width height 32 [SWSurface]
 

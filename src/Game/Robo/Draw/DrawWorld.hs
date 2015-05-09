@@ -1,4 +1,4 @@
-module Game.Robo.Core.DrawWorld where
+module Game.Robo.Draw.DrawWorld where
 
 import Graphics.UI.SDL as SDL
 import Graphics.UI.SDL.Primitives
@@ -14,8 +14,8 @@ import Control.Monad.Reader
 import Data.Traversable
 import Control.Applicative ((<$>))
 
-import Game.Robo.Core
-import Game.Robo.Core.DrawBot
+import Game.Robo.Core.Types
+import Game.Robo.Draw.DrawBot
 import Game.Robo.Maths
 
 drawBullet :: Surface -> Bullet -> DrawWorld
@@ -24,13 +24,13 @@ drawBullet surface bul = do
       pow = bul^.bulPower
 
       (cx, cy) = (round (pos^.vX), round (pos^.vY))
-      size = round (pow * 2.5)
+      size = round (sqrt pow * 2.5)
 
-  liftIO . void $ circle surface cx cy size (Pixel 0x0000FFFF)
+  liftIO . void $ circle surface cx cy size (Pixel 0xFF8888FF)
 
 drawWorld :: Surface -> DrawWorld
 drawWorld surface = do
-    liftIO . void $ fillRect surface Nothing (Pixel 0xFFFFFFFF)
+    liftIO . void $ fillRect surface Nothing (Pixel 0xFF100808)
 
     bots <- use wldBots
     mapM_ (drawBot surface) bots

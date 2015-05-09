@@ -19,11 +19,12 @@ import Data.Array.IO
 
 import Data.Vector.Class
 import Data.List
+import Data.Ord
 import Data.Maybe
 
 import Game.Robo.Core
 import Game.Robo.Maths
-import Game.Robo.Core.DrawWorld
+import Game.Robo.Draw.DrawWorld
 
 initialBotState ::  Scalar -> BotID -> Vec -> BotState
 initialBotState mass bid pos =
@@ -34,11 +35,16 @@ initialBotState mass bid pos =
            , _botHeading   = 0
            , _botSpeed     = 0
            , _botAngVel    = 0
-           , _botGun = GunState { _gunHeading = 0
-                                , _gunFiring  = 0
-                                , _gunAngVel  = 0
-                                }
-           , _botMass      = mass }
+
+           , _botGun   = GunState   { _gunHeading = 0
+                                    , _gunFiring  = 0
+                                    , _gunAngVel  = 0 }
+
+           , _botRadar = RadarState { _radHeading = 0
+                                    , _radAngVel  = 0 }
+
+           , _botMass      = mass
+           }
 
 -- | Calculate the robot's new position after some time has passed.
 -- Approximates many integrals.
@@ -52,7 +58,7 @@ stepBotMotion passed = do
   heading   <- use botHeading
 
   let angVel'  = turnFric * (angVel + angThrust * passed)
-      heading' = normaliseAngle $ heading + angVel' * passed
+      heading' = angNormAbsolute $ heading + angVel' * passed
       dir      = vecFromAngle heading'
 
   thrust    <- use botThrust
@@ -68,6 +74,8 @@ stepBotMotion passed = do
   botSpeed   .= speed'
   botPos     .= pos'
 
+-- | Creates a bullet moving away from the end of the robot's gun,
+-- and sets the firepower back to 0.
 fireBullet :: Bot Bullet
 fireBullet = do
   firing <- use (botGun.gunFiring)
@@ -101,13 +109,21 @@ stepBotGun passed doTick = do
 
   return bullets
 
+-- | Update the motion of the robot's radar.
+stepBotRadar :: Double -> Bot ()
+stepBotRadar passed = do
+  vel <- use (botRadar.radAngVel)
+  botRadar.radHeading += vel * passed
+
 -- | Update the robot after some time has passed.
 stepBot :: Double -> Bool -> Bot [Bullet]
 stepBot passed doTick = do
   stepBotMotion passed
   bullets <- stepBotGun passed doTick
+  stepBotRadar passed
   return bullets
 
+-- | Makes a Rect specifying the robot's bounds.
 botRect :: Bot Rect
 botRect = do
   sz  <- asks (view ruleBotSize)
@@ -115,6 +131,35 @@ botRect = do
   pos <- use botPos
   return $ rect pos sz ang
 
+-- | Scans for other robots within this robot's field of view.
+tryScan :: [BotState] -> Bot (Maybe ScanData)
+tryScan bots = do
+  pos   <- use botPos
+  bid   <- use botID
+  fov   <- asks (view ruleRadFOV)
+  range <- asks (view ruleRadRange)
+  rh    <- use (botRadar.radHeading)
+  bh    <- use botHeading
+  let facingAngle = rh + bh
+      minAngle = facingAngle - fov / 2
+      maxAngle = facingAngle + fov / 2
+      -- get all bots within the scan segment
+      targets = filter (inSegmentCentre minAngle maxAngle range pos . view botPos) bots
+      -- make sure the current bot isn't included
+      notUs   = filter ((/= bid) . view botID) targets
+      -- sort by distance
+      sorted  = sortBy (comparing (vecMag . subtract pos . view botPos)) notUs
+
+  -- return the closet bot, if it exists
+  return $ case sorted of
+    bot : _ ->
+      let thatPos = bot^.botPos
+          dist = vecMag (pos - thatPos)
+          ang  = pos `angleTo` thatPos
+      in  Just $ ScanData dist ang
+    _       -> Nothing
+
+-- | Tests if a bullet has hit the robot, and returns Nothing if so.
 testBulletHit :: Bullet -> Bot (Maybe Bullet)
 testBulletHit bul = do
   bid <- use botID
@@ -130,7 +175,7 @@ writeLog :: String -> [String] -> IO ()
 writeLog name = putStr . unlines . map ((name ++ ": ") ++)
 
 -- | Run a robot. This never terminates and is designed to be called in its own thread.
--- Communicates with the main thread via channels.
+-- Communicates with the World thread via channels.
 runBot :: BattleRules -> BotSpec -> BotState -> BotID -> UpdateChan -> ResponseChan -> IO ()
 runBot rules spec state1 bid updateChan responseChan =
   case spec of
@@ -153,10 +198,13 @@ runBot rules spec state1 bid updateChan responseChan =
              gen <- newStdGen
              let bot = do
                    bullets <- stepBot passed doTick
-                   (_, userState') <-
-                     if doTick
-                       then runRobo onTick' userState
-                       else return ((), userState)
+                   mscan   <- tryScan (worldState^.wldBots)
+                   let roboActions = do
+                         when doTick onTick'
+                         case mscan of
+                           Just scan -> onScan' scan
+                           Nothing   -> return ()
+                   (_, userState') <- runRobo roboActions userState
                    return (bullets, userState')
 
                  ((bullets, userState'), botState', log) = evalBot bot gen rules botState

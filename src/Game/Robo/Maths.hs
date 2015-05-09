@@ -4,11 +4,15 @@ import Lens.Family2
 import Data.Vector.V2
 import Data.Vector.Class
 
-import Game.Robo.Core
+import Game.Robo.Core.Types
 
 -----------------------------------
 -- VECTORS
 -----------------------------------
+
+-- | Get the pair of coordinates out of a vector
+vecPair :: Vec -> (Scalar, Scalar)
+vecPair (Vector2 x y) = (x, y)
 
 -- | The angle from the first argument to the second, in radians.
 angleTo :: Vec -> Vec -> Angle
@@ -24,9 +28,47 @@ vecFromAngle ang = vec (cos ang) (sin ang)
 
 -- | Rotate a vector about the origin by an angle.
 rotateVec :: Angle -> Vec -> Vec
-rotateVec ang vec = vmag vec *| vecFromAngle newAng
-  where oldAng = angleToHorizontal vec
+rotateVec ang v = vecMag v *| vecFromAngle newAng
+  where oldAng = angleToHorizontal v
         newAng = oldAng + ang
+
+-- | Get the magnitude of the vector.
+vecMag :: Vec -> Scalar
+vecMag = vmag
+
+-- | Normalise a vector.
+vecNorm :: Vec -> Vec
+vecNorm = vnormalise
+
+-- | The vector perpendicular to this one on the right-hand side.
+vecPerpR :: Vec -> Vec
+vecPerpR (Vector2 x y) = vec y (-x)
+
+-- | The vector perpendicular to this one on the left-hand side.
+vecPerpL :: Vec -> Vec
+vecPerpL (Vector2 x y) = vec (-y) x
+
+-- | Is a point within a segment of a circle with its centre at the origin?
+-- The segment is the one obtained by rotating clockwise (positive angles)
+-- from @ang1@ to @ang2@.
+-- > inSegment ang1 ang2 radius xy
+inSegment :: Angle -> Angle -> Scalar -> Vec -> Bool
+inSegment ang1 ang2 radius xy = withinDist && withinAngles
+  where withinDist = vecMag xy <= radius
+        ang1' = angNormAbsolute ang1
+        ang2' = angNormAbsolute ang2
+        xyAng = angNormAbsolute (angleToHorizontal xy)
+        withinAngles =
+          (ang1' <= ang2' &&  xyAng >= ang1' && xyAng <= ang2') ||
+          (ang1' >= ang2' && (xyAng >= ang1' || xyAng <= ang2'))
+
+-- | Is a point within a segment of a circle with its centre at @centre@?
+-- The segment is the one obtained by rotating clockwise (positive angles)
+-- from @ang1@ to @ang2@.
+-- > inSegmentCentre ang1 ang2 radius centre xy
+inSegmentCentre :: Angle -> Angle -> Scalar -> Vec -> Vec -> Bool
+inSegmentCentre ang1 ang2 radius centre xy =
+  inSegment ang1 ang2 radius (xy - centre)
 
 -----------------------------------
 -- ANGLES
@@ -40,12 +82,20 @@ radToDeg = (/ pi) . (* 180)
 degToRad :: Angle -> Angle
 degToRad = (* pi) . (/ 180)
 
--- | Normalise an angle to the range (-pi, pi]
-normaliseAngle :: Angle -> Angle
-normaliseAngle ang =
+-- | Normalise an angle to the range [-pi, pi)
+angNormRelative :: Angle -> Angle
+angNormRelative ang =
   case () of
-    () | ang <= -pi  -> normaliseAngle (ang + 2 * pi)
-    () | ang > pi   -> normaliseAngle (ang - 2 * pi)
+    () | ang < -pi  -> angNormRelative (ang + 2 * pi)
+    () | ang >= pi   -> angNormRelative (ang - 2 * pi)
+    () | otherwise -> ang
+
+-- | Normalise an angle to the range [0, 2*pi)
+angNormAbsolute :: Angle -> Angle
+angNormAbsolute ang =
+  case () of
+    () | ang < 0   -> angNormAbsolute (ang + 2 * pi)
+    () | ang >= 2*pi -> angNormAbsolute (ang - 2 * pi)
     () | otherwise -> ang
 
 -----------------------------------

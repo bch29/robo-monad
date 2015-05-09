@@ -5,7 +5,10 @@ module Game.Robo.Core
   , applyBot
   , runRobo
   , runDrawing
-  , module Game.Robo.Core.Types )
+  , module Game.Robo.Core.Types
+  , UpdateChan
+  , ResponseChan
+  )
     where
 
 import Lens.Family2
@@ -26,7 +29,7 @@ import Data.List
 import Data.Maybe
 
 import Game.Robo.Core.Types
-import Game.Robo.Core.DrawWorld
+import Game.Robo.Draw.DrawWorld
 import Game.Robo.Maths
 
 type UpdateChan = Chan (BotState, WorldState, Double, Bool)
@@ -34,9 +37,10 @@ type ResponseChan = Chan (BotID, BotState, [Bullet])
 
 defaultRules :: BattleRules
 defaultRules =
-  BattleRules { _ruleMaxThrust     = 250
+  BattleRules { _ruleMaxThrust     = 500
               , _ruleMaxAngThrust  = 32
-              , _ruleMaxGunSpeed   = 2
+              , _ruleMaxGunSpeed   = 4
+              , _ruleMaxRadSpeed   = 16
               , _ruleMaxFirePower  = 2
               , _ruleMinFirePower  = 0.5
               , _ruleMass          = 1
@@ -44,8 +48,11 @@ defaultRules =
               , _ruleTurnFriction  = 0.9
               , _ruleBotSize       = vec 60 40
               , _ruleGunSize       = vec 40 8
+              , _ruleRadarSize     = vec 10 30
               , _ruleBulletSpeed   = 400
-              , _ruleWorldSize     = vec 800 800
+              , _ruleRadRange      = 2000
+              , _ruleRadFOV        = pi / 6
+              , _ruleArenaSize     = vec 800 800
               , _ruleTickTime      = 0.1
               }
 

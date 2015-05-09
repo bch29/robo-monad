@@ -1,19 +1,20 @@
 {-# LANGUAGE RankNTypes #-}
-module Robo
+module Game.Robo
   -- Re-exported
   ( BattleRules (..), ruleMaxThrust, ruleMaxAngThrust, ruleMaxGunSpeed, ruleMaxFirePower, ruleMinFirePower
                     , ruleMass, ruleDriveFriction, ruleTurnFriction, ruleBotSize, ruleGunSize
-                    , ruleBulletSpeed, ruleWorldSize, ruleTickTime
+                    , ruleBulletSpeed, ruleArenaSize, ruleTickTime
   , BotSpec (..)
-  , ScanData
+  , ScanData (..)
   , Robo
   , vec, rect
   , defaultRules
 
   , runWorld
 
-  , getRandom
-  , getRandomR
+  , getRandom, getRandomR
+
+  , module Data.Vector.Class
 
   , module Lens.Family2
   , module Lens.Family2.State
@@ -23,21 +24,18 @@ module Robo
   , module Control.Monad.Reader.Class
 
   -- types
-  , Scalar
-  , Angle
+  , Vec, Scalar, Angle
   -- accessors
-  , getPosition
-  , getHeading
-  , getSpeed
-  , getAngVel
+  , getRule
+  , getPosition, getHeading, getHeadingVec, getSpeed, getAngVel
+  , getGunRelHeading, getGunAbsHeading
+  , getRadarRelHeading, getRadarAbsHeading
   -- control
-  , setThrust
-  , setTurnPower
-  , setGunSpeed
-  , setFiring
+  , setThrust, setTurnPower
+  , setGunSpeed, setFiring
+  , setRadarSpeed
   -- logging
-  , blog
-  , blogShow
+  , printLine, printShow
   )
     where
 
@@ -45,12 +43,15 @@ import Lens.Family2
 import Lens.Family2.TH
 import Lens.Family2.State
 
+import Control.Applicative
 import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.Random
 
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
+
+import Data.Vector.Class hiding (Scalar)
 
 import Game.Robo.Maths
 import Game.Robo.Core
@@ -66,6 +67,10 @@ type Scalar = Double
 --  ACCESSORS
 ---------------------------------
 
+-- | Get the value of a rule.
+getRule :: Getter' BattleRules a -> Robo s a
+getRule rule = withBot $ asks (view rule)
+
 -- | Get the robot's current position in pixels relative to the bottom-left corner.
 getPosition :: Robo s Vec
 getPosition = useBot botPos
@@ -73,6 +78,10 @@ getPosition = useBot botPos
 -- | Get the direction in which the robot is facing.
 getHeading :: Robo s Angle
 getHeading = useBot botHeading
+
+-- | Get the direction in which the robot is facing as a normalised vector.
+getHeadingVec :: Robo s Vec
+getHeadingVec = angleAsVec getHeading
 
 -- | Get the robot's current forward (or backward if negative) speed.
 getSpeed :: Robo s Scalar
@@ -92,6 +101,22 @@ getGunAbsHeading = do
   botHeading <- getHeading
   gunHeading <- getGunRelHeading
   return $ botHeading + gunHeading
+
+-- | Get the direction in which the robot's radar is facing relative to the robot.
+getRadarRelHeading :: Robo s Angle
+getRadarRelHeading = useBot (botRadar.radHeading)
+
+-- | Get the absolute direction in which the robot's radar is facing.
+getRadarAbsHeading :: Robo s Angle
+getRadarAbsHeading = do
+  botHeading <- getHeading
+  radarHeading <- getRadarRelHeading
+  return $ botHeading + radarHeading
+
+-- | Utility function to convert an angle accessor to one that returns a vector
+-- in the direction of the angle instead.
+angleAsVec :: Robo s Angle -> Robo s Vec
+angleAsVec = (vecFromAngle <$>)
 
 ---------------------------------
 --  CONTROL
@@ -122,17 +147,21 @@ setFiring power = withBot $ do
        | power > max -> botGun.gunFiring .= max
        | otherwise -> botGun.gunFiring .= power
 
+-- | Set the rotation speed of the radar (positive is anticlockwise).
+setRadarSpeed :: Scalar -> Robo s ()
+setRadarSpeed = setBotCapped ruleMaxRadSpeed (botRadar.radAngVel)
+
 ---------------------------------
 --  LOGGING
 ---------------------------------
 
 -- | Log a string.
-blog :: String -> Robo s ()
-blog message = withBot (tell [message])
+printLine :: String -> Robo s ()
+printLine message = withBot (tell [message])
 
 -- | Log something showable.
-blogShow :: Show a => a -> Robo s ()
-blogShow = blog . show
+printShow :: Show a => a -> Robo s ()
+printShow = printLine . show
 
 ---------------------------------
 --  UTILITY FUNCTIONS
