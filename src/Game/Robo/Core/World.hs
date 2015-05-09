@@ -50,12 +50,11 @@ collectResponses chan numBots = do
       writeArray responses bid (Just bot)
       collect (n - 1) (buls ++ bullets) responses
 
-updateWorldWithResponses :: ResponseChan -> Int -> WorldState -> IO WorldState
-updateWorldWithResponses chan numBots state = do
-  (botStates', bullets) <- collectResponses chan numBots
-  let state' = state & wldBots .~ botStates'
-                     & wldBullets %~ (bullets ++)
-  return state'
+updateWorldWithResponses :: ResponseChan -> Int -> IOWorld ()
+updateWorldWithResponses chan numBots = do
+  (newBots, bullets) <- liftIO $ collectResponses chan numBots
+  wldBots    .= newBots
+  wldBullets %= (bullets ++)
 
 -- | Move a bullet along.
 updateBullet :: Double -> Bullet -> Bullet
@@ -79,71 +78,100 @@ stepBullets passed = do
   wldBullets .= filter (isBulletInArena size) bullets'
 
 -- | Handles all bullet collisions.
-handleBulletCollisions :: StdGen -> World ()
-handleBulletCollisions rgen = do
+handleBulletCollisions :: World ()
+handleBulletCollisions = do
     -- get the list of all bot IDs
     bids <- gets $ toListOf (wldBots.traverse.botID)
-    handler rgen bids
-  where handler _ [] = return ()
+    handler bids
+  where handler [] = return ()
         -- step through the bot ids
-        handler gen (bid:bids) = do
+        handler (bid:bids) = do
           -- get all the bullets
           bullets <- use wldBullets
           -- see if the current bot is colliding with any of the bullets
-          bulletsm <- applyBot gen bid $ mapM testBulletHit bullets
+          bulletsm <- applyBot bid $ mapM testBulletHit bullets
           -- remove the bullets that have collided
           wldBullets .= catMaybes bulletsm
           -- keep looping
-          let (_, gen') = split gen
-          handler gen' bids
+          handler bids
 
 -- | Steps the world (minus the bots) forward a tick.
-stepWorld :: StdGen -> Double -> World ()
-stepWorld gen passed = do
+stepWorld :: Double -> World ()
+stepWorld passed = do
   stepBullets passed
-  handleBulletCollisions gen
+  handleBulletCollisions
 
-mainLoop :: Surface -> BattleRules -> WorldState -> [UpdateChan] -> ResponseChan -> IO ()
-mainLoop surface rules worldState updateChan responseChan = do
-    time <- getTicksSeconds
-    loop worldState time 0
+-- | Gets random positions within the given size for bots to start in.
+generateSpawnPositions :: MonadRandom m => Int -> Scalar -> Vec -> m [Vec]
+generateSpawnPositions count margin size =
+  replicateM count (getRandomR (1 |* margin, size - 1 |* (2*margin)))
+
+mainLoop :: Surface -> [UpdateChan] -> ResponseChan -> IOWorld ()
+mainLoop surface updateChan responseChan = do
+    time <- liftIO $ getTicksSeconds
+    loop time 0
   where
-    numBots = length (worldState^.wldBots)
-    loop state prevTime sinceTick = do
+    loop prevTime sinceTick = do
       -- Yield the CPU a little
-      delay 0
-
-      time <- getTicksSeconds
+      liftIO $ delay 0
+      time <- liftIO $ getTicksSeconds
       let passed = time - prevTime
 
       -- we don't want to update too fast
       if passed >= 0.01 then do
-        let tickTime = rules^.ruleTickTime
-            (doTick, sinceTick') = if sinceTick > tickTime
-                                    then (True, sinceTick - tickTime)
-                                    else (False, sinceTick)
+        tickTime <- asks (view ruleTickTime)
+        let (doTick, sinceTick') = if sinceTick > tickTime
+                                      then (True, sinceTick - tickTime)
+                                      else (False, sinceTick)
 
         -- tell the bots to update themselves
+        state <- get
         let botStates = state^.wldBots
             botUpdates = zip4 botStates (repeat state) (repeat passed) (repeat doTick)
-        zipWithM_ writeChan updateChan botUpdates
+        liftIO $ zipWithM_ writeChan updateChan botUpdates
 
         -- get the responses back
-        state' <- updateWorldWithResponses responseChan numBots state
+        numBots <- length <$> use wldBots
+        updateWorldWithResponses responseChan numBots
 
         -- do further world updates
-        gen1 <- newStdGen
-        gen2 <- newStdGen
-        let (_, state'', log) = evalWorld (stepWorld gen2 passed) gen1 rules state'
+        promoteContext (stepWorld passed)
 
         -- draw the world
-        runDrawing (drawWorld surface) rules state''
-        SDL.flip surface
+        drawWorld surface
+        liftIO (SDL.flip surface)
 
         -- loop back round unless we get an exit event
-        event <- pollEvent
-        unless (event == Quit) $ loop state'' time (sinceTick' + passed)
-      else loop state prevTime sinceTick
+        event <- liftIO pollEvent
+        unless (event == Quit) $ loop time (sinceTick' + passed)
+      else loop prevTime sinceTick
+
+worldMain :: Surface -> [BotSpec] -> IOWorld ()
+worldMain surface specs = do
+  -- initialise the bot states
+  let numBots = length specs
+  mass        <- asks (view ruleMass)
+  spawnMargin <- asks (view ruleSpawnMargin)
+  arenaSize   <- asks (view ruleArenaSize)
+  positions   <- generateSpawnPositions numBots spawnMargin arenaSize
+  let bots = zipWith (initialBotState mass) [1..] positions
+  wldBots .= bots
+
+  -- initialise the channels
+  updateChans  <- liftIO $ replicateM numBots newChan
+  responseChan <- liftIO $ newChan
+
+  -- start the bot threads, each with their update channel
+  rules <- ask
+  let runBot' (spec, state, bid, updChan) = runBot rules spec state bid updChan responseChan
+  liftIO $ mapM_ (forkIO . runBot') (zip4 specs bots [1..] updateChans)
+
+  -- get the responses to initialisation
+  updateWorldWithResponses responseChan numBots
+
+  -- start the main loop
+  mainLoop surface updateChans responseChan
+
 
 -- | Run a battle with the given rules and robots.
 runWorld :: BattleRules -> [BotSpec] -> IO ()
@@ -157,35 +185,15 @@ runWorld rules specs = withInit [InitEverything] $ do
       (width, height) = (round (screenSize^.vX), round (screenSize^.vY))
   screen <- setVideoMode width height 32 [SWSurface]
 
-  -- initialise the bot states
-  let numBots = length specs
-      xInterval = 800 / fromIntegral numBots
-      y = 400
-      mass = rules^.ruleMass
-      firstX = 400 - xInterval * fromIntegral (numBots - 1) * 0.5
-      positions = map (\i -> vec (firstX + fromIntegral i * xInterval) y) [0 .. numBots - 1]
-      initialStates = zipWith (initialBotState mass) [1..] positions
-
   -- initialise the world state
   let worldState =
-        WorldState { _wldBots  = initialStates
+        WorldState { _wldBots  = []
                    , _wldRect  = rect (screenSize |* 0.5) screenSize 0
                    , _wldBullets = []
                    }
 
-  -- initialise the channels
-  updateChans  <- replicateM numBots newChan
-  responseChan <- newChan
-
-  -- start the bot threads, each with their update channel
-  let runBot' (spec, state, bid, updChan) = runBot rules spec state bid updChan responseChan
-  mapM_ (forkIO . runBot') (zip4 specs initialStates [1..] updateChans)
-
-  -- get the responses to initialisation
-  worldState' <- updateWorldWithResponses responseChan numBots worldState
-
   -- start the main loop
-  mainLoop screen rules worldState' updateChans responseChan
+  evalIOContext (worldMain screen specs) rules worldState
 
   -- clean up
   TTF.quit

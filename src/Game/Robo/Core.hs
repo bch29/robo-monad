@@ -1,10 +1,12 @@
 module Game.Robo.Core
   ( defaultRules
-  , evalBot
-  , evalWorld
+  , runContext
+  , evalContext
   , applyBot
   , runRobo
-  , runDrawing
+  , runIOContext
+  , evalIOContext
+  , promoteContext
   , module Game.Robo.Core.Types
   , UpdateChan
   , ResponseChan
@@ -53,41 +55,62 @@ defaultRules =
               , _ruleRadRange      = 2000
               , _ruleRadFOV        = pi / 6
               , _ruleArenaSize     = vec 800 800
+              , _ruleSpawnMargin   = 100
               , _ruleTickTime      = 0.1
               }
 
--- | Evaluates an action in the Bot monad, returning the resulting state and message log.
-evalBot :: Bot a -> StdGen -> BattleRules -> BotState -> (a, BotState, [String])
-evalBot = evalGameMonad
-
-evalWorld :: World a -> StdGen -> BattleRules -> WorldState -> (a, WorldState, [String])
-evalWorld = evalGameMonad
-
 -- | Evaluate a Bot monadic action in the context of its world.
-applyBot :: StdGen -> BotID -> Bot a -> World a
-applyBot gen bid bot = do
-  rules <- ask
+applyBot :: BotID -> Bot a -> World a
+applyBot bid bot = do
   botStates <- use wldBots
   let (prevStates, targetState : postStates) = splitAt (bid - 1) botStates
-      (result, newState, log) = evalBot bot gen rules targetState
-
+  (result, newState) <- lift $ runStateT bot targetState
   wldBots .= prevStates ++ newState : postStates
-  tell log
   return result
 
 -- | Evaluate a Robo down to its underlying Bot monad.
 runRobo :: Robo s a -> s -> Bot (a, s)
-runRobo ctrl state = runBotWrapper (runStateT ctrl state )
+runRobo ctrl state = runBotWrapper (runStateT ctrl state)
 
--- | Evaluate a DrawWorld monadic action.
-runDrawing :: DrawWorld -> BattleRules -> WorldState -> IO ()
-runDrawing drawing rules state = runReaderT (evalStateT drawing state) rules
-
--- | Evaluates an action in a game monad.
-evalGameMonad :: GameMonad s a -> StdGen -> BattleRules -> s -> (a, s, [String])
-evalGameMonad game gen rules state = (res, state', log)
-  where noRandom = evalRandT game gen
-        noWriter = runWriterT noRandom
+-- | Runs an action in a stateful context, returning the resulting state,
+-- random number generator and message log along with the result of the action.
+runContext :: StatefulContext s a -> StdGen -> BattleRules -> s -> (a, s, [String], StdGen)
+runContext ctx gen rules state = (res, state', log, gen')
+  where noState  = runStateT  ctx state
+        noWriter = runWriterT noState
         noReader = runReaderT noWriter rules
-        ((res, log), state') = runState noReader state
+        (((res, state'), log), gen') = runRand noReader gen
 
+-- | Evaluates an action in a stateful context, returning the resulting state and
+-- message log along with the action's result.
+evalContext :: StatefulContext s a -> StdGen -> BattleRules -> s -> (a, s, [String])
+evalContext ctx gen rules state =
+  let (res, state', log, _) = runContext ctx gen rules state
+  in  (res, state', log)
+
+-- | Runs an IOWorld action, returning the results, state and message log.
+runIOContext :: IOContext s a -> BattleRules -> s -> IO (a, s, [String])
+runIOContext ctx rules state = do
+  let noState = runStateT ctx state
+      noWriter = runWriterT noState
+      noReader = runReaderT noWriter rules
+  ((res, state'), log) <- noReader
+  return (res, state', log)
+
+-- | Evaluates an IOContext action and returns just the result.
+evalIOContext :: IOContext s a -> BattleRules -> s -> IO a
+evalIOContext ctx rules state = do
+  (res, _, _) <- runIOContext ctx rules state
+  return res
+
+-- | Promotes a stateful context to one able to do I/O.
+promoteContext :: StatefulContext s a -> IOContext s a
+promoteContext ctx = do
+  state <- get
+  rules <- ask
+  gen   <- liftIO getStdGen
+  let (res, state', log, gen') = runContext ctx gen rules state
+  liftIO $ setStdGen gen'
+  put state'
+  tell log
+  return res

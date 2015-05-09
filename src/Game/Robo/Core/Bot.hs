@@ -174,46 +174,45 @@ testBulletHit bul = do
 writeLog :: String -> [String] -> IO ()
 writeLog name = putStr . unlines . map ((name ++ ": ") ++)
 
+botMain :: BotSpec -> BotID -> UpdateChan -> ResponseChan -> IOBot ()
+botMain spec bid updateChan responseChan =
+  case spec of
+    BotSpec name initialState onInit' onTick' onScan' -> do
+      -- run the robot's initialisation method
+      (_, userState1) <- promoteContext $ runRobo onInit' initialState
+      state <- get
+
+      -- send the initialisation results back to the main thread
+      liftIO $ writeChan responseChan (bid, state, [])
+
+      -- start the main loop
+      loop userState1 where
+        loop userState = do
+          -- wait until the main thread tells us to advance
+          (botState, worldState, passed, doTick) <- liftIO $ readChan updateChan
+          put botState
+
+          -- update the robot state
+          (bullets, userState') <- promoteContext $ do
+            bullets <- stepBot passed doTick
+            mscan   <- tryScan (worldState^.wldBots)
+            let roboActions = do
+                  when doTick onTick'
+                  case mscan of
+                    Just scan -> onScan' scan
+                    _ -> return ()
+            (_, userState') <- runRobo roboActions userState
+            return (bullets, userState')
+
+          -- send our new state, and any bullets fired, back to the main thread
+          botState' <- get
+          liftIO $ writeChan responseChan (bid, botState', bullets)
+
+          -- loop forever (until the thread is terminated)
+          loop userState'
+
 -- | Run a robot. This never terminates and is designed to be called in its own thread.
 -- Communicates with the World thread via channels.
 runBot :: BattleRules -> BotSpec -> BotState -> BotID -> UpdateChan -> ResponseChan -> IO ()
-runBot rules spec state1 bid updateChan responseChan =
-  case spec of
-    (BotSpec name initialState onInit' onTick' onScan') ->
-      do -- run the robot's initialisation method
-         gen <- newStdGen
-         let ((_, userState1), state1', log1) =
-               evalBot (runRobo onInit' initialState) gen rules state1
-         writeLog name log1
-         -- send the initialised BotState to the main thread
-         writeChan responseChan (bid, state1', [])
-
-         -- start the main loop
-         loop userState1 where
-           loop userState = do
-             -- wait until the main thread tells us to advance
-             (botState, worldState, passed, doTick) <- readChan updateChan
-
-             -- update the robot state
-             gen <- newStdGen
-             let bot = do
-                   bullets <- stepBot passed doTick
-                   mscan   <- tryScan (worldState^.wldBots)
-                   let roboActions = do
-                         when doTick onTick'
-                         case mscan of
-                           Just scan -> onScan' scan
-                           Nothing   -> return ()
-                   (_, userState') <- runRobo roboActions userState
-                   return (bullets, userState')
-
-                 ((bullets, userState'), botState', log) = evalBot bot gen rules botState
-
-             -- print out the log to the console for now
-             writeLog name log
-
-             -- pass the robot state back to the main thread
-             writeChan responseChan (bid, botState', bullets)
-
-             -- loop forever (until the thread is terminated)
-             loop userState'
+runBot rules spec state bid updateChan responseChan =
+  evalIOContext (botMain spec bid updateChan responseChan) rules state

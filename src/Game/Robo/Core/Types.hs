@@ -15,7 +15,6 @@ import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Control.Monad.Random
-import System.Random
 
 import Lens.Family2
 import Lens.Family2.TH
@@ -28,23 +27,35 @@ import Data.Vector.Class
 ---------------------------------
 
 -- | The monad exposed to the user, which allows a restricted set of
--- functions to modify the underlying State monad. Parametrised by user
--- state.
+-- functions to modify the underlying monad. Parametrised by user state.
 type Robo s = StateT s BotWrapper
 
--- | The internal robot monad. Uses a Writer for logging, a Reader to see
--- the game rules and a State for the current robot state.
-type Bot = GameMonad BotState
+-- | The internal robot monad.
+type Bot = StatefulContext BotState
+
+-- | A bot that can do I/O.
+type IOBot = IOContext BotState
 
 -- | Wraps the Bot monad to prevent user access to internals.
 newtype BotWrapper a = BotWrapper { runBotWrapper :: Bot a }
   deriving (Monad, Functor, Applicative)
 
 -- | The internal world monad.
-type World = GameMonad WorldState
+type World = StatefulContext WorldState
 
--- | There is a lot shared between World and Bot, so why not factor it out?
-type GameMonad s = RandT StdGen (WriterT [String] (ReaderT BattleRules (State s)))
+-- | A world that can do I/O.
+type IOWorld = IOContext WorldState
+
+-- | For when we need to do I/O in our contexts.
+type IOContext s = StateT s (WriterT [String] (ReaderT BattleRules IO))
+
+-- | Factors out shared code between Bot and World.
+type StatefulContext s = StateT s GameContext
+
+-- | A lot of computations take place within this context, with a Writer
+-- for logging, a Reader to keep track of the battle rules and a Rand for
+-- random number generation.
+type GameContext = WriterT [String] (ReaderT BattleRules (Rand StdGen))
 
 ---------------------------------
 --  Robot State
@@ -131,11 +142,10 @@ data BattleRules =
                  , _ruleRadRange      :: Scalar -- The range at which radars are able to see robots.
                  , _ruleRadFOV        :: Angle  -- The angle through which radars are able to see robots.
                  , _ruleArenaSize     :: Vec    -- The vector dimensions of the arena.
+                 , _ruleSpawnMargin   :: Scalar -- The smallest distance from the edge of arena that robots
+                                                -- can spawn at.
                  , _ruleTickTime      :: Double -- The time between robots' calls to onRun.
                  }
-
--- | A convenient monad used for drawing stuff.
-type DrawWorld = StateT WorldState (ReaderT BattleRules IO) ()
 
 -- | State information for the world in which the battle is taking place.
 data WorldState =
@@ -189,6 +199,15 @@ instance Show Rect where
             spc .
             showsPrec (prec + 1) y
           spc = (' ':)
+
+instance Random Vector2 where
+  random gen = (vec x y, gen'')
+    where (x, gen')  = random gen
+          (y, gen'') = random gen'
+
+  randomR (Vector2 x1 y1, Vector2 x2 y2) gen = (vec x y, gen'')
+    where (x, gen')  = randomR (x1, x2) gen
+          (y, gen'') = randomR (y1, y2) gen'
 
 ---------------------------------
 --  Lenses

@@ -61,19 +61,19 @@ radarRect bot rules =
       pos = (bot^.botPos) + offset
   in  rect pos sz radAng
 
-drawChassis :: Surface -> BotState -> DrawWorld
+drawChassis :: Surface -> BotState -> IOWorld ()
 drawChassis surface bot = do
   rules <- ask
   let box = botRect bot rules
   liftIO $ drawRect surface (Pixel 0x99FFFFFF) box
 
-drawGun :: Surface -> BotState -> DrawWorld
+drawGun :: Surface -> BotState -> IOWorld ()
 drawGun surface bot = do
   rules <- ask
   let box = gunRect bot rules
   liftIO $ drawRect surface (Pixel 0xFFFFAAFF) box
 
-drawRadar :: Surface -> BotState -> DrawWorld
+drawRadar :: Surface -> BotState -> IOWorld ()
 drawRadar surface bot = do
   rules <- ask
   let box = radarRect bot rules
@@ -82,7 +82,7 @@ drawRadar surface bot = do
 
   liftIO $ drawPoly surface (Pixel 0xFFFFFF88) [a, b, pos]
 
-drawBot :: Surface -> BotState -> DrawWorld
+drawBot :: Surface -> BotState -> IOWorld ()
 drawBot surface bot = do
   let pos = bot^.botPos
   drawChassis surface bot

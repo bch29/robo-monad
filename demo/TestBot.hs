@@ -5,12 +5,15 @@ import Game.Robo
 import Game.Robo.Maths
 import Game.Robo.PidController
 
+import Control.Monad
+
 type TestBot = Robo TestBotState
 
 data TestBotState = TestBotState
   { _testPid :: PidController Scalar Scalar
   , _gunPid  :: PidController Scalar Scalar
-  , _target  :: Angle
+  , _target  :: Vec
+  , _targetAngle :: Angle
   , _ticks   :: Int
   , _enemyPos :: Maybe Vec
   }
@@ -21,7 +24,8 @@ myInitialState :: TestBotState
 myInitialState = TestBotState
   { _testPid = makePidSimple 50 0 30
   , _gunPid  = makePid 15 1 1 0.5
-  , _target  = 0
+  , _target  = vec 400 400
+  , _targetAngle = 0
   , _ticks   = 0
   , _enemyPos = Nothing
   }
@@ -29,7 +33,7 @@ myInitialState = TestBotState
 initBot :: TestBot ()
 initBot = do
   setGunSpeed 2
-  setThrust 250
+  setThrust 500
   setRadarSpeed 16
 
 run :: TestBot ()
@@ -38,13 +42,16 @@ run = do
   ticks %= (`mod` 20)
 
   nt <- use ticks
-  if nt == 0
-     then target += 4 * pi / 3
-     else return ()
+  when (nt == 0) $ do
+    targetAngle += pi / 3
+    tang <- use targetAngle
+    target .= vec 400 400 + 200 *| vecFromAngle tang
 
-  -- pid controller towards target angle
-  do ang <- getHeading
-     tAng <- use target
+  -- pid controller towards target position
+  do pos  <- getPosition
+     targ <- use target
+     ang  <- getHeading
+     let tAng = pos `angleTo` targ
      testPid %= updatePid (angNormRelative (tAng - ang))
      setTurnPower =<< use (testPid.pidOut)
 

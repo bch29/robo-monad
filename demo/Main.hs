@@ -14,4 +14,4 @@ myRules :: BattleRules
 myRules = defaultRules
 
 main :: IO ()
-main = runWorld myRules [testbot, crazy]
+main = runWorld myRules [crazy, testbot]

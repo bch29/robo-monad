@@ -18,7 +18,7 @@ import Game.Robo.Core.Types
 import Game.Robo.Draw.DrawBot
 import Game.Robo.Maths
 
-drawBullet :: Surface -> Bullet -> DrawWorld
+drawBullet :: Surface -> Bullet -> IOWorld ()
 drawBullet surface bul = do
   let pos = bul^.bulPos
       pow = bul^.bulPower
@@ -28,7 +28,7 @@ drawBullet surface bul = do
 
   liftIO . void $ circle surface cx cy size (Pixel 0xFF8888FF)
 
-drawWorld :: Surface -> DrawWorld
+drawWorld :: Surface -> IOWorld ()
 drawWorld surface = do
     liftIO . void $ fillRect surface Nothing (Pixel 0xFF100808)
 
