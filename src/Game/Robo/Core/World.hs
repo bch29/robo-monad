@@ -1,3 +1,14 @@
+{-|
+Module      : Game.Robo.Core.World
+Description : Handles the main simulation code.
+Copyright   : (c) Bradley Hardy, 2015
+License     : BSD3
+Maintainer  : bradleyhardy@live.com
+Stability   : experimental
+Portability : non-portable (depends on SDL)
+
+-}
+
 module Game.Robo.Core.World (runWorld) where
 
 import Graphics.UI.SDL as SDL hiding (Rect)
@@ -21,7 +32,6 @@ import Control.DeepSeq
 import Data.Array.MArray
 import Data.Array.IO
 
-import Data.Vector.Class
 import Data.List
 import Data.Maybe
 
@@ -213,6 +223,12 @@ worldMain surface specs = do
   whileContext $ mainStep surface updateChans responseChan
 
 -- | Run a battle with the given rules and robots.
+--
+-- If you have 'BotSpec's @mybot1@, @mybot2@ and @mybot3@, then
+-- you can start a RoboMonad simulation from your main function
+-- like so:
+--
+-- > main = runWorld defaultRules [mybot1, mybot2, mybot3]
 runWorld :: Rules -> [BotSpec] -> IO ()
 runWorld rules specs = withInit [InitEverything] $ do
   -- initialise libraries
@@ -226,7 +242,7 @@ runWorld rules specs = withInit [InitEverything] $ do
   -- initialise the world state
   let worldState = WorldState
         { _wldBots      = []
-        , _wldRect      = rect (screenSize |* 0.5) screenSize 0
+        , _wldRect      = Rect (screenSize |* 0.5) screenSize 0
         , _wldBullets   = []
         , _wldTime      = 0
         , _wldSinceStep = 0

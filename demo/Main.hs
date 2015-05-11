@@ -7,8 +7,8 @@ import Game.Robo
 import Game.Robo.Maths
 import Game.Robo.PidController
 
-import Crazy
 import TestBot
+import Crazy
 
 myRules :: Rules
 myRules = defaultRules

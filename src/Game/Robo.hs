@@ -1,39 +1,65 @@
-{-# LANGUAGE RankNTypes, Trustworthy #-}
+{-|
+Module      : Game.Robo
+Description : The main module you need to import to make your own robots.
+Copyright   : (c) Bradley Hardy, 2015
+License     : BSD3
+Maintainer  : bradleyhardy@live.com
+Stability   : experimental
+Portability : non-portable (depends on SDL)
+
+-}
+
+{-# LANGUAGE Trustworthy #-} -- Enables compilation of robot files with Safe Haskell.
+{-# LANGUAGE RankNTypes  #-} -- Required for lens function type signatures.
+
 module Game.Robo
-  -- Re-exported
-  ( Rules (..), module Game.Robo.Core.Rules
-  , BotSpec (..)
-  , ScanData (..)
+  (
+  -- * Core
+    runWorld
+  , defaultRules
   , Robo
-  , vec, rect
+  , BotSpec (..)
 
-  , runWorld
-
-  , getRandom, getRandomR
-
-  , module Data.Vector.Class
-
-  , module Lens.Family2
-  , module Lens.Family2.State
-  , module Lens.Family2.TH
-
-  , module Control.Monad.State.Class
-  , module Control.Monad.Reader.Class
-
-  -- types
-  , Vec, Scalar, Angle
-  -- accessors
+  -- * Accessors
   , getRule
   , getPosition, getHeading, getHeadingVec, getSpeed, getAngVel
   , getGunRelHeading, getGunAbsHeading
   , getRadarRelHeading, getRadarAbsHeading
   , getEnergy
-  -- control
+
+  -- * Control
   , setThrust, setTurnPower
   , setGunTurnPower, setFiring
   , setRadarSpeed
-  -- logging
+
+  -- * Printing
   , printLine, printShow
+
+  -- * Rules
+  , Rules (..)
+
+  -- * Other Robo
+  , ScanData (..)
+
+  -- * Random number generation
+  , getRandom, getRandomR
+
+
+  -- try to put all the lens stuff, etc, at the end
+  -- so it doesn't get in the way of documentation
+  -- * Basic maths stuff and lenses
+  , module Game.Robo.Core.MathsTypes
+
+  -- * Rule lenses
+  , module Game.Robo.Core.Rules
+
+  -- * Misc
+  , module Control.Monad.State.Class
+  , module Control.Monad.Reader.Class
+
+  , module Lens.Family2
+  , module Lens.Family2.State
+  , module Lens.Family2.TH
   )
     where
 
@@ -49,24 +75,17 @@ import Control.Monad.Random
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
 
-import Data.Vector.Class hiding (Scalar)
-
 import Game.Robo.Maths
 import Game.Robo.Core
-import Game.Robo.Core.Rules
 import Game.Robo.Core.World
-
----------------------------------
---  TYPES
----------------------------------
-
-type Scalar = Double
+import Game.Robo.Core.Rules
+import Game.Robo.Core.MathsTypes
 
 ---------------------------------
 --  ACCESSORS
 ---------------------------------
 
--- | Get the value of a rule.
+-- | Get the value of a rule from its lens.
 getRule :: Getter' Rules a -> Robo s a
 getRule rule = withBot $ asks (view rule)
 
@@ -112,8 +131,8 @@ getRadarAbsHeading = do
   radarHeading <- getRadarRelHeading
   return $ botHeading + radarHeading
 
--- | Get the robot's current available energy. See @ruleMaxEnergy@ and
--- @ruleEnergyRechargeRate@.
+-- | Get the robot's current available energy. See '_ruleMaxEnergy' and
+-- '_ruleEnergyRechargeRate'.
 getEnergy :: Robo s Scalar
 getEnergy = useBot botEnergy
 
@@ -140,7 +159,7 @@ setTurnPower = setBotCapped ruleMaxAngThrust botAngThrust
 setGunTurnPower :: Scalar -> Robo s ()
 setGunTurnPower = setBotCapped ruleMaxGunTurnPower (botGun.gunAngAcc)
 
--- | Set the firing power of the gun, where 0 means don't fire. Limited by game rules.
+-- | Set the firing power of the gun, where @0@ means don't fire. Limited by game rules.
 setFiring :: Scalar -> Robo s ()
 setFiring power = withBot $ do
   min <- asks (view ruleMinFirePower)
@@ -159,11 +178,11 @@ setRadarSpeed = setBotCapped ruleMaxRadSpeed (botRadar.radAngVel)
 --  LOGGING
 ---------------------------------
 
--- | Log a string.
+-- | Print a string to the robot's console.
 printLine :: String -> Robo s ()
 printLine message = withBot (tell [message])
 
--- | Log something showable.
+-- | Show something and print the resulting string to the robot's console.
 printShow :: Show a => a -> Robo s ()
 printShow = printLine . show
 

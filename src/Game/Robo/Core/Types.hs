@@ -1,19 +1,41 @@
-{-# LANGUAGE TemplateHaskell
-           , ExistentialQuantification
-           , GeneralizedNewtypeDeriving
-           , MultiParamTypeClasses
-           , FlexibleInstances #-}
+{-|
+Module      : Game.Robo.Core.Types
+Description : Most of the types required throughout.
+Copyright   : (c) Bradley Hardy, 2015
+License     : BSD3
+Maintainer  : bradleyhardy@live.com
+Stability   : experimental
+Portability : non-portable (depends on SDL)
+
+These are defined in their own file to avoid module import cycles.
+-}
+
+{-# LANGUAGE TemplateHaskell            #-} -- For lens generation
+{-# LANGUAGE ExistentialQuantification  #-} -- Note [ExistentialQuantification]
+{-# LANGUAGE GeneralizedNewtypeDeriving #-} -- For easy newtype wrapping
+{-# LANGUAGE MultiParamTypeClasses      #-} -- For MonadState instance of @Robo s@
+{-# LANGUAGE FlexibleInstances          #-} -- For MonadState instance of @Robo s@
 
 module Game.Robo.Core.Types
-  -- ( Bot
-  -- , Robo (..)
-  -- , BotSpec (..)
-  -- , BotState, botThrust, botAngThrust, botPos, botVel, botMass
-  -- , Rules, ruleMaxThrust, ruleMaxAngThrust, ruleMass
-  -- , Vec , vec
-  -- , Angle
-  -- , Rect, rect, rectCentre, rectSize, rectAngle )
-    where
+  ( Rules (..)
+
+  , Robo  (..), BotWrapper (..)
+  , Bot, IOBot
+  , World, IOWorld
+  , PureContext, ContextT
+
+  , WorldState (..)
+
+  , BotID
+  , BotState (..), BotSpec (..)
+
+  , GunState (..), RadarState      (..), ScanData (..)
+  , Bullet   (..), BulletCollision (..)
+
+  , BotUpdate (..), BotResponse (..)
+
+  , module Game.Robo.Core.MathsTypes
+  ) where
 
 import Control.Monad.State.Strict
 import Control.Monad.Reader
@@ -23,47 +45,71 @@ import Control.Monad.Random
 import Lens.Family2
 import Lens.Family2.TH
 
-import Data.Vector.V2
-import Data.Vector.Class
-
 import Control.DeepSeq
+
+import Game.Robo.Core.MathsTypes
 
 ---------------------------------
 --  Rules
 ---------------------------------
 
--- | Specifies the parameters that robots operate under.
+-- | Specifies the parameters of the simulation.
 data Rules = Rules
-  { _ruleMaxThrust          :: Scalar -- The maximum engine power allowed.
-  , _ruleMaxAngThrust       :: Scalar -- The maximum turning power allowed.
-  , _ruleMaxGunTurnPower    :: Scalar -- The maximum angular acceleration of the gun.
-  , _ruleMaxRadSpeed        :: Scalar -- The maximum rotation speed of the radar.
-  , _ruleMaxFirePower       :: Scalar -- The maximum firing power.
-  , _ruleMinFirePower       :: Scalar -- The minimum firing power.
-  , _ruleMass               :: Scalar -- The mass of each robot.
-  , _ruleDriveFriction      :: Scalar -- The friction experienced by the robots in moving forward.
-  , _ruleTurnFriction       :: Scalar -- The friction experienced by the robots in turning.
-  , _ruleGunFriction        :: Scalar -- The friction experienced by the robots' guns in turning.
-  , _ruleMaxEnergy          :: Scalar -- The maximum energy that a robot can have.
-  , _ruleEnergyRechargeRate :: Scalar -- The rate at which energy recharges, per second.
-  , _ruleBotSize            :: Vec    -- The vector dimensions of the robots.
-  , _ruleGunSize            :: Vec    -- The vector dimensions of the guns.
-  , _ruleRadarSize          :: Vec    -- The vector dimensions of the radars.
-  , _ruleBulletSpeed        :: Scalar -- The speed at which bullets move.
-  , _ruleRadRange           :: Scalar -- The range at which radars are able to see robots.
-  , _ruleRadFOV             :: Angle  -- The angle through which radars are able to see robots.
-  , _ruleArenaSize          :: Vec    -- The vector dimensions of the arena.
-  , _ruleSpawnMargin        :: Scalar -- The smallest distance from the edge of arena that robots can spawn at.
-  , _ruleStepInterval       :: Int    -- The time between updates of the simulation, in milliseconds.
-  , _ruleTickSteps          :: Int    -- The number of steps between each Robo tick.
+  {
+  -- | The vector dimensions of the robots.
+    _ruleBotSize            :: Vec
+  -- | The maximum engine power allowed.
+  , _ruleMaxThrust          :: Scalar
+  -- | The friction experienced by the robots in moving forward.
+  , _ruleDriveFriction      :: Scalar
+  -- | The maximum turning power allowed.
+  , _ruleMaxAngThrust       :: Scalar
+  -- | The friction experienced by the robots in turning.
+  , _ruleTurnFriction       :: Scalar
+  -- | The mass of each robot.
+  , _ruleMass               :: Scalar
+  -- | The maximum energy that a robot can have.
+  , _ruleMaxEnergy          :: Scalar
+  -- | The rate at which energy recharges, per second.
+  , _ruleEnergyRechargeRate :: Scalar
+
+  -- | The vector dimensions of the radars.
+  , _ruleRadarSize          :: Vec
+  -- | The maximum rotation speed of the radar.
+  , _ruleMaxRadSpeed        :: Scalar
+  -- | The range at which radars are able to see robots.
+  , _ruleRadRange           :: Scalar
+  -- | The angle through which radars are able to see robots.
+  , _ruleRadFOV             :: Angle
+
+  -- | The vector dimensions of the guns.
+  , _ruleGunSize            :: Vec
+  -- | The maximum angular acceleration of the gun.
+  , _ruleMaxGunTurnPower    :: Scalar
+  -- | The friction experienced by the robots' guns in turning.
+  , _ruleGunFriction        :: Scalar
+  -- | The speed at which bullets move.
+  , _ruleBulletSpeed        :: Scalar
+  -- | The maximum firing power.
+  , _ruleMaxFirePower       :: Scalar
+  -- | The minimum firing power.
+  , _ruleMinFirePower       :: Scalar
+
+  -- | The vector dimensions of the arena.
+  , _ruleArenaSize          :: Vec
+  -- | The smallest distance from the edge of arena that robots can spawn at.
+  , _ruleSpawnMargin        :: Scalar
+  -- | The time between updates of the simulation, in milliseconds.
+  , _ruleStepInterval       :: Int
+  -- | The number of steps between each Robo tick.
+  , _ruleTickSteps          :: Int
   }
 
 ---------------------------------
 --  Monads
 ---------------------------------
 
--- | The monad exposed to the user, which allows a restricted set of
--- functions to modify the underlying monad. Parametrised by user state.
+-- | The monad in which robots run. Parametrised by user state.
 newtype Robo s a = Robo (StateT s BotWrapper a)
   deriving (Monad, Functor, Applicative, MonadRandom)
 
@@ -88,12 +134,31 @@ type PureContext s = ContextT s (Rand StdGen)
 
 -- | A lot of computations take place within this context, with a Writer
 -- for logging, a Reader to keep track of the battle rules and a Rand for
--- random number generation.
+-- random number generation. We don't use RWS because we want StateT as
+-- the outer layer so that we can easily strip off a BotState and replace
+-- it with a WorldState to 'promote' Bot to World.
 type ContextT s m = StateT s (WriterT [String] (ReaderT Rules m))
+
+---------------------------------
+--  World State
+---------------------------------
+
+-- | State information for the world in which the battle is taking place.
+data WorldState = WorldState
+  { _wldBullets   :: ![Bullet]   -- The bullets fired by robots.
+  , _wldBots      :: ![BotState] -- The robots themselves.
+  , _wldRect      :: !Rect       -- Represents the size of the arena.
+  , _wldTime      :: !Int        -- The time in milliseconds since simulation started.
+  , _wldSinceStep :: !Int        -- The number of milliseconds since the last step.
+  , _wldSinceTick :: !Int        -- The number of steps that have passed since the last tick.
+  }
 
 ---------------------------------
 --  Robot State
 ---------------------------------
+
+-- | The type used for robot IDs.
+type BotID = Int
 
 -- | State information for a robot.
 data BotState = BotState
@@ -110,17 +175,34 @@ data BotState = BotState
   , _botEnergy    :: !Scalar     -- The current energy the robot has available.
   }
 
--- | Specifies a robot's behaviour by providing controller functions to react to events
--- and a few bits of information about the robot.
-data BotSpec = forall s. BotSpec
-  { botName :: String               -- The robot's name.
-  , botInitialState :: s            -- The initial state.
-  , onInit :: Robo s ()             -- When the robot is initialised.
-  , onTick :: Robo s ()             -- When a game tick passes.
-  , onScan :: ScanData -> Robo s () -- When the radar scans another bot.
-  , onHitByBullet :: Robo s ()      -- When the robot is hit by an enemy bullet.
-  , onBulletHit   :: Robo s ()      -- When a bullet fired by the robot hits a target.
+-- | Specifies a robot's behaviour.
+data BotSpec = forall s. BotSpec -- Note [ExistentialQuantification]
+  {
+  -- | The robot's name.
+    botName :: String
+  -- | The initial state.
+  , botInitialState :: s
+  -- | Executed when the robot is initialised.
+  , onInit :: Robo s ()
+  -- | Executed when a game tick passes.
+  , onTick :: Robo s ()
+  -- | Executed when the radar scans another bot.
+  , onScan :: ScanData -> Robo s ()
+  -- | Executed when this robot is hit by an enemy bullet.
+  , onHitByBullet :: Robo s ()
+  -- | Executed when a bullet fired by this robot hits a target.
+  , onBulletHit   :: Robo s ()
   }
+
+{-
+Note [ExistentialQuantification]
+
+We do forall s. BotSpec in order to allow each robot to have its own
+distinct state structure. This is possible without breaking the type
+system because only the BotSpec knows about @s@. The user's code can
+do whatever it wants with @s@, and all our code (in Game.Robo.Core.Bot)
+needs to know is that the @s@ is consistent.
+-}
 
 ---------------------------------
 --  Robot Substate
@@ -166,21 +248,6 @@ data BulletCollision = BulletCollision
   }
 
 ---------------------------------
---  World State
----------------------------------
-
-
--- | State information for the world in which the battle is taking place.
-data WorldState = WorldState
-  { _wldBullets   :: ![Bullet]   -- The bullets fired by robots.
-  , _wldBots      :: ![BotState] -- The robots themselves.
-  , _wldRect      :: !Rect       -- Represents the size of the arena.
-  , _wldTime      :: !Int        -- The time in milliseconds since simulation started.
-  , _wldSinceStep :: !Int        -- The number of milliseconds since the last step.
-  , _wldSinceTick :: !Int        -- The number of steps that have passed since the last tick.
-  }
-
----------------------------------
 --  Thread Communication
 ---------------------------------
 
@@ -199,68 +266,12 @@ data BotResponse = BotResponse
   }
 
 ---------------------------------
---  Core Types
----------------------------------
-
--- | The type used for robot IDs.
-type BotID = Int
-
--- | A two-dimensional real-valued vector.
-type Vec = Vector2
-
--- | Make a vector from two scalars @x@ and @y@.
-vec :: Scalar -> Scalar -> Vec
-vec = Vector2
-
--- | An angle in radians.
-type Angle = Scalar
-
--- | A rectangle with a centre, size and angle (to the horizontal).
-data Rect = Rect
-  { _rectCentre :: !Vec
-  , _rectSize   :: !Vec
-  , _rectAngle  :: !Angle
-  }
-
--- | Make a rectangle from a centre, size and angle.
-rect :: Vec -> Vec -> Angle -> Rect
-rect = Rect
-
--- | Make a rectangle from two corners, with no rotation.
-rectFromCorners :: Vec -> Vec -> Rect
-rectFromCorners a b = rect centre size 0
-  where size = abs $ b - a
-        centre = (a + b) |* 0.5
-
----------------------------------
 --  Instances
 ---------------------------------
 
 instance MonadState s (Robo s) where
   get = Robo get
   put s = Robo (put s)
-
-instance Show Rect where
-  showsPrec prec (Rect cn sz ang) = showParen (prec /= 0) res
-    where res = ("Rect " ++) . svec cn . spc . svec sz . spc . showsPrec (prec + 2) ang
-          svec (Vector2 x y) = showParen True $
-            showString "vec " .
-            showsPrec (prec + 1) x .
-            spc .
-            showsPrec (prec + 1) y
-          spc = (' ':)
-
-instance Random Vector2 where
-  random gen = (vec x y, gen'')
-    where (x, gen')  = random gen
-          (y, gen'') = random gen'
-
-  randomR (Vector2 x1 y1, Vector2 x2 y2) gen = (vec x y, gen'')
-    where (x, gen')  = randomR (x1, x2) gen
-          (y, gen'') = randomR (y1, y2) gen'
-
-instance NFData Vector2 where
-  rnf (Vector2 x y) = x `seq` y `seq` ()
 
 instance NFData Bullet where
   rnf bul = rnf (_bulVel bul)
@@ -271,20 +282,3 @@ instance NFData BotState where
 
 instance NFData WorldState where
   rnf wld = wld `seq` ()
-
----------------------------------
---  Lenses
----------------------------------
-
-makeLenses ''WorldState
-
-makeLenses ''BotState
-makeLenses ''GunState
-makeLenses ''RadarState
-
-makeLenses ''Bullet
-makeLenses ''BulletCollision
-
-makeLenses ''Rect
-
-makeLensesFor [("v2x", "vX"), ("v2y", "vY")] ''Vector2

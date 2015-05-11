@@ -1,3 +1,14 @@
+{-|
+Module      : Game.Robo.Core.Bot
+Description : Deals with robot threads and physics.
+Copyright   : (c) Bradley Hardy, 2015
+License     : BSD3
+Maintainer  : bradleyhardy@live.com
+Stability   : experimental
+Portability : non-portable (depends on SDL)
+
+-}
+
 module Game.Robo.Core.Bot where
 
 import Lens.Family2
@@ -11,7 +22,6 @@ import Control.Monad.Writer.Strict
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
-import Data.Vector.Class
 import Data.List
 import Data.Ord
 
@@ -83,8 +93,8 @@ fireBullet = do
     botAng <- use botHeading
     gunAng <- use (botGun.gunHeading)
     let ang = botAng + gunAng
-        vel = rotateVec ang (vec speed 0)
-        offset = rotateVec ang (vec (gunSize^.vX) 0)
+        vel = rotateVec ang (Vec speed 0)
+        offset = rotateVec ang (Vec (gunSize^.vX) 0)
         bul = Bullet { _bulVel = vel
                      , _bulPos = pos + offset
                      , _bulPower = firing
@@ -152,7 +162,7 @@ botRect = do
   sz  <- asks (view ruleBotSize)
   ang <- use botHeading
   pos <- use botPos
-  return $ rect pos sz ang
+  return $ Rect pos sz ang
 
 -- | Scans for other robots within this robot's field of view.
 tryScan :: [BotState] -> Bot (Maybe ScanData)

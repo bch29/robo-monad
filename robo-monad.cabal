@@ -9,15 +9,14 @@ license:             BSD3
 license-file:        LICENSE
 author:              Bradley Hardy
 maintainer:          bradleyhardy@live.com
--- copyright:           
+copyright:           Bradley Hardy 2015
 category:            Game
 build-type:          Simple
 cabal-version:       >=1.10
 
-
 executable robo-demo
   main-is:             Main.hs
-  other-modules:       Crazy, TestBot, ExampleBot
+  other-modules:       TestBot, ExampleBot, Crazy
   build-depends:       base >=4.6 && <4.7, robo-monad
   hs-source-dirs:      demo
   default-language:    Haskell2010
@@ -28,23 +27,28 @@ executable robo-demo
     "-with-rtsopts=-N"
 
 library
-  exposed-modules:     Game.Robo,
-                       Game.Robo.Maths,
-                       Game.Robo.PidController,
-                       Game.Robo.Extra
+  exposed-modules:
+    Game.Robo,
+    Game.Robo.Maths,
+    Game.Robo.PidController,
+    Game.Robo.Extra
 
-  other-modules:       Game.Robo.Core,
-                       Game.Robo.Core.Types,
-                       Game.Robo.Core.Rules,
-                       Game.Robo.Core.World,
-                       Game.Robo.Core.Bot,
-                       Game.Robo.Draw.DrawWorld,
-                       Game.Robo.Draw.DrawBot
-  build-depends:       base >=4.6 && <4.7,
-                       mtl, MonadRandom, random, array, deepseq,
-                       AC-Vector,
-                       lens-family, lens-family-th,
-                       SDL, SDL-gfx, SDL-ttf
+  other-modules:
+    Game.Robo.Core.MathsTypes,
+    Game.Robo.Core.Types,
+    Game.Robo.Core.Lenses,
+    Game.Robo.Core.Rules,
+    Game.Robo.Core,
+    Game.Robo.Core.World,
+    Game.Robo.Core.Bot,
+    Game.Robo.Draw.DrawWorld,
+    Game.Robo.Draw.DrawBot
+  build-depends:
+    base >=4.6 && <4.8,
+    mtl, MonadRandom, random,
+    array, deepseq,
+    lens-family, lens-family-th,
+    SDL, SDL-gfx, SDL-ttf
   hs-source-dirs:      src
   default-language:    Haskell2010
   ghc-options:

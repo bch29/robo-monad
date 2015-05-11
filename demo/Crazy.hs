@@ -42,8 +42,8 @@ myTick :: Crazy ()
 myTick = do
   pos      <- getPosition
   hv       <- getHeadingVec
-  dist     <- getWallDist hv
-  perpDist <- getWallDist (vecPerpR hv)
+  dist     <- getWallDistR
+  perpDist <- getWallDistDirR (vecPerpR hv)
   let perpTp = if perpDist < 100 then 10 else if perpDist < 200 then -16 else 0
       normTp = if dist < 200 then 32 else 0
   setTurnPower (perpTp + normTp)

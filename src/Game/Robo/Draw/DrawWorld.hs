@@ -1,3 +1,14 @@
+{-|
+Module      : Game.Robo.Draw.DrawWorld
+Description : Handles the rendering of the simulation using SDL.
+Copyright   : (c) Bradley Hardy, 2015
+License     : BSD3
+Maintainer  : bradleyhardy@live.com
+Stability   : experimental
+Portability : non-portable (depends on SDL)
+
+-}
+
 module Game.Robo.Draw.DrawWorld where
 
 import Graphics.UI.SDL as SDL

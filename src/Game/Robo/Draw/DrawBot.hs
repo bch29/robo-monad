@@ -1,3 +1,14 @@
+{-|
+Module      : Game.Robo.Draw.DrawBot
+Description : Handles drawing of robots using SDL.
+Copyright   : (c) Bradley Hardy, 2015
+License     : BSD3
+Maintainer  : bradleyhardy@live.com
+Stability   : experimental
+Portability : non-portable (depends on SDL)
+
+-}
+
 module Game.Robo.Draw.DrawBot where
 
 import Graphics.UI.SDL as SDL hiding (Rect)
@@ -14,14 +25,11 @@ import Control.Monad.Reader
 import Data.Traversable
 import Control.Applicative ((<$>))
 
-import Data.Vector.V2
-import Data.Vector.Class
-
 import Game.Robo.Core
 import Game.Robo.Maths
 
 vecToPix :: Integral a => Vec -> (a, a)
-vecToPix (Vector2 x y) = (round x, round y)
+vecToPix (Vec x y) = (round x, round y)
 
 -- drawPoly :: Surface -> Pixel -> [(Int16, Int16)] -> IO ()
 drawPoly surface pix corners@(x:_) = loop corners
@@ -39,7 +47,7 @@ botRect = do
   sz <- asks (view ruleBotSize)
   ang <- use botHeading
   pos <- use botPos
-  return $ rect pos sz ang
+  return $ Rect pos sz ang
 
 gunRect :: IOBot Rect
 gunRect = do
@@ -49,7 +57,7 @@ gunRect = do
   let dir = vecFromAngle gunAng
       offset = dir |* (sz^.vX) * 0.5
   pos <- (+ offset) <$> use botPos
-  return $ rect pos sz gunAng
+  return $ Rect pos sz gunAng
 
 radarRect :: IOBot Rect
 radarRect = do
@@ -59,7 +67,7 @@ radarRect = do
   let dir = vecFromAngle radAng
       offset = dir |* (sz^.vX) * 0.5
   pos <- (+ offset) <$> use botPos
-  return $ rect pos sz radAng
+  return $ Rect pos sz radAng
 
 drawChassis :: Surface -> IOBot ()
 drawChassis surface = do

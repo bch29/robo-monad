@@ -1,3 +1,17 @@
+{-|
+Module      : Game.Robo.Core
+Description : Core operations shared by lots of parts of the game engine.
+Copyright   : (c) Bradley Hardy, 2015
+License     : BSD3
+Maintainer  : bradleyhardy@live.com
+Stability   : experimental
+Portability : non-portable (depends on SDL)
+
+Mainly contains utility functions for unwrapping/lifting/promoting/handling monads,
+re-exports Types, Lenses and Rules because almost everything that uses Core also
+use all of those.
+-}
+
 module Game.Robo.Core
   ( applyBot
   , runRobo
@@ -9,9 +23,9 @@ module Game.Robo.Core
   , whileContext
   , iterateContext
   , module Game.Robo.Core.Types
+  , module Game.Robo.Core.Lenses
   , module Game.Robo.Core.Rules
-  )
-    where
+  ) where
 
 import Lens.Family2
 import Lens.Family2.State
@@ -27,12 +41,12 @@ import Control.Monad.Writer.Strict
 import Control.Monad.State.Strict
 import Control.Monad.Random
 
-import Data.Vector.Class
 import Data.List
 import Data.Maybe
 
 import Game.Robo.Core.Types
 import Game.Robo.Core.Rules
+import Game.Robo.Core.Lenses
 import Game.Robo.Maths
 
 -- | Evaluate a Bot monadic action in the context of its world.

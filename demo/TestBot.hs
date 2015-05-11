@@ -25,7 +25,7 @@ myInitialState = TestBotState
   { _turningPid  = makePidSimple 50 0 30
   -- PID controller with no D gain used for spray effect
   , _gunPid      = makePidSimple 200 0 0
-  , _target      = vec 400 400
+  , _target      = Vec 400 400
   , _targetAngle = 0
   , _ticks       = 0
   , _enemyPos    = Nothing
@@ -45,7 +45,7 @@ run = do
   when (nt == 0) $ do
     targetAngle += pi / 3
     tang <- use targetAngle
-    target .= vec 400 400 + 200 *| vecFromAngle tang
+    target .= Vec 400 400 + 200 *| vecFromAngle tang
 
   -- pid controller towards target position
   do pos  <- getPosition
