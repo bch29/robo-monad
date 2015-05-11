@@ -12,14 +12,14 @@ import Game.Robo.Extra
 type Crazy = Robo CrazyState
 
 data CrazyState = CrazyState
-     { _gunPid :: PidController Double Double
+     { _gunPid   :: PidController Double Double
      }
 
 makeLenses ''CrazyState
 
 emptyState :: CrazyState
 emptyState = CrazyState
-  { _gunPid = makePid 15 1 1 0.5
+  { _gunPid   = makePidSimple 200 0 100
   }
 
 myInit :: Crazy ()
@@ -36,8 +36,7 @@ adjustGun = do
       errorAngle = angNormRelative (offAngle - gunAngle)
   gunPid %= updatePid errorAngle
   out <- use (gunPid.pidOut)
-  setGunSpeed out
-
+  setGunTurnPower out
 
 myTick :: Crazy ()
 myTick = do
@@ -49,17 +48,27 @@ myTick = do
       normTp = if dist < 200 then 32 else 0
   setTurnPower (perpTp + normTp)
   adjustGun
-  setFiring 1
+  setFiring 2
 
 myScan :: ScanData -> Crazy ()
 myScan s = do
   return ()
 
+myOnHitByBullet :: Crazy ()
+myOnHitByBullet = do
+  return ()
+
+myOnBulletHit :: Crazy ()
+myOnBulletHit = do
+  return ()
+
 crazy :: BotSpec
 crazy = BotSpec
-  { botName = "crazy"
+  { botName         = "crazy"
   , botInitialState = emptyState
-  , onInit = myInit
-  , onTick = myTick
-  , onScan = myScan
+  , onInit          = myInit
+  , onTick          = myTick
+  , onScan          = myScan
+  , onHitByBullet   = myOnHitByBullet
+  , onBulletHit     = myOnBulletHit
   }

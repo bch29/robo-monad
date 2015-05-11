@@ -7,6 +7,10 @@ cabal-dev/
 *.o
 *.p_hi
 *.prof
+*.aux
+*.hp
+*.ps
+*.bak
 *.tix
 cabal.config
 dist-sandbox

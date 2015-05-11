@@ -17,7 +17,7 @@ import Control.Applicative ((<$>))
 import Data.Vector.V2
 import Data.Vector.Class
 
-import Game.Robo.Core.Types
+import Game.Robo.Core
 import Game.Robo.Maths
 
 vecToPix :: Integral a => Vec -> (a, a)
@@ -34,57 +34,54 @@ drawRect surface pix box = do
   let corners = map vecToPix $ rectCorners box
   drawPoly surface pix corners
 
-botRect :: BotState -> BattleRules -> Rect
-botRect bot rules =
-  let sz  = rules^.ruleBotSize
-      ang = bot^.botHeading
-      pos = bot^.botPos
-  in  rect pos sz ang
+botRect :: IOBot Rect
+botRect = do
+  sz <- asks (view ruleBotSize)
+  ang <- use botHeading
+  pos <- use botPos
+  return $ rect pos sz ang
 
-gunRect :: BotState -> BattleRules -> Rect
-gunRect bot rules =
-  let sz  = rules^.ruleGunSize
-      botAng = bot^.botHeading
-      gunAng = (bot^.botGun.gunHeading) + (bot^.botHeading)
-      dir = vecFromAngle gunAng
+gunRect :: IOBot Rect
+gunRect = do
+  sz <- asks (view ruleGunSize)
+  botAng <- use botHeading
+  gunAng <- (botAng +) <$> use (botGun.gunHeading)
+  let dir = vecFromAngle gunAng
       offset = dir |* (sz^.vX) * 0.5
-      pos = (bot^.botPos) + offset
-  in  rect pos sz gunAng
+  pos <- (+ offset) <$> use botPos
+  return $ rect pos sz gunAng
 
-radarRect :: BotState -> BattleRules -> Rect
-radarRect bot rules =
-  let sz  = rules^.ruleRadarSize
-      botAng = bot^.botHeading
-      radAng = (bot^.botRadar.radHeading) + (bot^.botHeading)
-      dir = vecFromAngle radAng
+radarRect :: IOBot Rect
+radarRect = do
+  sz <- asks (view ruleRadarSize)
+  botAng <- use botHeading
+  radAng <- (botAng +) <$> use (botRadar.radHeading)
+  let dir = vecFromAngle radAng
       offset = dir |* (sz^.vX) * 0.5
-      pos = (bot^.botPos) + offset
-  in  rect pos sz radAng
+  pos <- (+ offset) <$> use botPos
+  return $ rect pos sz radAng
 
-drawChassis :: Surface -> BotState -> IOWorld ()
-drawChassis surface bot = do
-  rules <- ask
-  let box = botRect bot rules
+drawChassis :: Surface -> IOBot ()
+drawChassis surface = do
+  box <- botRect
   liftIO $ drawRect surface (Pixel 0x99FFFFFF) box
 
-drawGun :: Surface -> BotState -> IOWorld ()
-drawGun surface bot = do
-  rules <- ask
-  let box = gunRect bot rules
+drawGun :: Surface -> IOBot ()
+drawGun surface = do
+  box <- gunRect
   liftIO $ drawRect surface (Pixel 0xFFFFAAFF) box
 
-drawRadar :: Surface -> BotState -> IOWorld ()
-drawRadar surface bot = do
-  rules <- ask
-  let box = radarRect bot rules
-      pos = vecToPix (bot^.botPos)
-      [a, b, c, d] = map vecToPix $ rectCorners box
+drawRadar :: Surface -> IOBot ()
+drawRadar surface = do
+  box <- radarRect
+  pos <- vecToPix <$> use botPos
+  let [a, b, c, d] = map vecToPix $ rectCorners box
 
   liftIO $ drawPoly surface (Pixel 0xFFFFFF88) [a, b, pos]
 
-drawBot :: Surface -> BotState -> IOWorld ()
-drawBot surface bot = do
-  let pos = bot^.botPos
-  drawChassis surface bot
-  drawGun     surface bot
-  drawRadar   surface bot
+drawBot :: Surface -> IOBot ()
+drawBot surface = do
+  pos <- use botPos
+  drawChassis surface
+  drawGun     surface
+  drawRadar   surface

@@ -1,29 +1,30 @@
 module Game.Robo.Core
-  ( defaultRules
+  ( applyBot
+  , runRobo
   , runContext
   , evalContext
-  , applyBot
-  , runRobo
-  , runIOContext
-  , evalIOContext
+  , runPureContext
   , promoteContext
+  , forceContext
+  , whileContext
+  , iterateContext
   , module Game.Robo.Core.Types
-  , UpdateChan
-  , ResponseChan
+  , module Game.Robo.Core.Rules
   )
     where
 
 import Lens.Family2
 import Lens.Family2.State
 
-import Control.Concurrent
+import Control.DeepSeq
+import Control.Exception
 
 import Control.Applicative
 import Data.Traversable
 import Control.Monad
-import Control.Monad.Writer
 import Control.Monad.Reader
-import Control.Monad.State
+import Control.Monad.Writer.Strict
+import Control.Monad.State.Strict
 import Control.Monad.Random
 
 import Data.Vector.Class
@@ -31,36 +32,11 @@ import Data.List
 import Data.Maybe
 
 import Game.Robo.Core.Types
-import Game.Robo.Draw.DrawWorld
+import Game.Robo.Core.Rules
 import Game.Robo.Maths
 
-type UpdateChan = Chan (BotState, WorldState, Double, Bool)
-type ResponseChan = Chan (BotID, BotState, [Bullet])
-
-defaultRules :: BattleRules
-defaultRules =
-  BattleRules { _ruleMaxThrust     = 500
-              , _ruleMaxAngThrust  = 32
-              , _ruleMaxGunSpeed   = 4
-              , _ruleMaxRadSpeed   = 16
-              , _ruleMaxFirePower  = 2
-              , _ruleMinFirePower  = 0.5
-              , _ruleMass          = 1
-              , _ruleDriveFriction = 0.98
-              , _ruleTurnFriction  = 0.9
-              , _ruleBotSize       = vec 60 40
-              , _ruleGunSize       = vec 40 8
-              , _ruleRadarSize     = vec 10 30
-              , _ruleBulletSpeed   = 400
-              , _ruleRadRange      = 2000
-              , _ruleRadFOV        = pi / 6
-              , _ruleArenaSize     = vec 800 800
-              , _ruleSpawnMargin   = 100
-              , _ruleTickTime      = 0.1
-              }
-
 -- | Evaluate a Bot monadic action in the context of its world.
-applyBot :: BotID -> Bot a -> World a
+applyBot :: Monad m => BotID -> ContextT BotState m a -> ContextT WorldState m a
 applyBot bid bot = do
   botStates <- use wldBots
   let (prevStates, targetState : postStates) = splitAt (bid - 1) botStates
@@ -70,47 +46,72 @@ applyBot bid bot = do
 
 -- | Evaluate a Robo down to its underlying Bot monad.
 runRobo :: Robo s a -> s -> Bot (a, s)
-runRobo ctrl state = runBotWrapper (runStateT ctrl state)
+runRobo (Robo ctrl) state = runBotWrapper (runStateT ctrl state)
 
 -- | Runs an action in a stateful context, returning the resulting state,
 -- random number generator and message log along with the result of the action.
-runContext :: StatefulContext s a -> StdGen -> BattleRules -> s -> (a, s, [String], StdGen)
-runContext ctx gen rules state = (res, state', log, gen')
-  where noState  = runStateT  ctx state
-        noWriter = runWriterT noState
-        noReader = runReaderT noWriter rules
-        (((res, state'), log), gen') = runRand noReader gen
+runPureContext :: PureContext s a -> StdGen -> Rules -> s -> (a, s, [String], StdGen)
+runPureContext ctx gen rules state = (res, state', log, gen')
+  where noCtx = runContext ctx rules state
+        ((res, state', log), gen') = runRand noCtx gen
 
--- | Evaluates an action in a stateful context, returning the resulting state and
--- message log along with the action's result.
-evalContext :: StatefulContext s a -> StdGen -> BattleRules -> s -> (a, s, [String])
-evalContext ctx gen rules state =
-  let (res, state', log, _) = runContext ctx gen rules state
-  in  (res, state', log)
-
--- | Runs an IOWorld action, returning the results, state and message log.
-runIOContext :: IOContext s a -> BattleRules -> s -> IO (a, s, [String])
-runIOContext ctx rules state = do
+-- | Runs a contextual action, returning the results, state and message log.
+runContext :: Monad m => ContextT s m a -> Rules -> s -> m (a, s, [String])
+runContext ctx rules state = do
   let noState = runStateT ctx state
       noWriter = runWriterT noState
       noReader = runReaderT noWriter rules
   ((res, state'), log) <- noReader
   return (res, state', log)
 
--- | Evaluates an IOContext action and returns just the result.
-evalIOContext :: IOContext s a -> BattleRules -> s -> IO a
-evalIOContext ctx rules state = do
-  (res, _, _) <- runIOContext ctx rules state
+-- | Evaluates a contextual action and returns just the result.
+evalContext :: Monad m => ContextT s m a -> Rules -> s -> m a
+evalContext ctx rules state = do
+  (res, _, _) <- runContext ctx rules state
   return res
 
--- | Promotes a stateful context to one able to do I/O.
-promoteContext :: StatefulContext s a -> IOContext s a
+-- | Promotes a pure context to one able to do I/O.
+promoteContext :: NFData s => PureContext s a -> ContextT s IO a
 promoteContext ctx = do
   state <- get
   rules <- ask
   gen   <- liftIO getStdGen
-  let (res, state', log, gen') = runContext ctx gen rules state
+  let (res, state', log, gen') = runPureContext ctx gen rules state
   liftIO $ setStdGen gen'
-  put state'
-  tell log
+  put $!! state'
+  tell $!! log
   return res
+
+-- | Forces the evaluation of all parts of an I/O-based context.
+forceContext :: NFData s => ContextT s IO ()
+forceContext = do
+  -- state
+  s <- get
+  liftIO $ evaluate (rnf s)
+
+-- | Do a contextual action until it returns Nothing, making sure to always
+-- fully evaluate the state and print out the contents of the log after
+-- each iteration.
+iterateContext :: NFData s => a -> (a -> ContextT s IO (Maybe a)) -> ContextT s IO ()
+iterateContext val1 ctxf = do
+  rules <- ask
+  state1 <- get
+
+  let loop state val = do
+        (mval, state', log) <- runContext (ctxf val) rules state
+        putStr (unlines log)
+        evaluate (rnf state')
+        case mval of
+          Just val' -> loop state' val'
+          Nothing   -> return ()
+
+  liftIO $ loop state1 val1
+
+whileContext :: NFData s => ContextT s IO Bool -> ContextT s IO ()
+whileContext ctx =
+  let ctxf _ = do
+        continue <- ctx
+        return $ if continue
+                    then Just continue
+                    else Nothing
+  in iterateContext True ctxf

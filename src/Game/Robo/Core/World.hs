@@ -1,4 +1,4 @@
-module Game.Robo.Core.World where
+module Game.Robo.Core.World (runWorld) where
 
 import Graphics.UI.SDL as SDL hiding (Rect)
 import Graphics.UI.SDL.TTF as TTF
@@ -15,7 +15,8 @@ import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Random
-import System.Random
+
+import Control.DeepSeq
 
 import Data.Array.MArray
 import Data.Array.IO
@@ -27,34 +28,6 @@ import Data.Maybe
 import Game.Robo.Core
 import Game.Robo.Core.Bot
 import Game.Robo.Draw.DrawWorld
-import Game.Robo.Maths
-
--- | Get the SDL ticks in seconds.
-getTicksSeconds :: IO Double
-getTicksSeconds = do
-  ticks <- getTicks
-  return $ 1e-3 * fromIntegral ticks
-
--- | Collect the responses to a request from all the robots,
--- blocking until every robot has responded.
-collectResponses :: ResponseChan -> Int -> IO ([BotState], [Bullet])
-collectResponses chan numBots = do
-    responses <- newArray (1, numBots) Nothing :: IO (IOArray BotID (Maybe BotState))
-    bullets <- collect numBots [] responses
-    results <- getElems responses
-    return $ (catMaybes results, bullets)
-  where
-    collect 0 bullets _ = return bullets
-    collect n bullets responses = do
-      (bid, bot, buls) <- readChan chan
-      writeArray responses bid (Just bot)
-      collect (n - 1) (buls ++ bullets) responses
-
-updateWorldWithResponses :: ResponseChan -> Int -> IOWorld ()
-updateWorldWithResponses chan numBots = do
-  (newBots, bullets) <- liftIO $ collectResponses chan numBots
-  wldBots    .= newBots
-  wldBullets %= (bullets ++)
 
 -- | Move a bullet along.
 updateBullet :: Double -> Bullet -> Bullet
@@ -77,26 +50,39 @@ stepBullets passed = do
   size <- asks (view ruleArenaSize)
   wldBullets .= filter (isBulletInArena size) bullets'
 
--- | Handles all bullet collisions.
-handleBulletCollisions :: World ()
+partitionM :: Monad m => (a -> m Bool) -> [a] -> m ([a], [a])
+partitionM _ [] = return ([], [])
+partitionM f (x:xs) = do
+  res <- f x
+  (as, bs) <- partitionM f xs
+  -- abuse of list comprehension!
+  return ([x | res] ++ as, [x | not res] ++ bs)
+
+-- | Handles all bullet collisions, removing colliding bullets and returning
+-- collision data.
+handleBulletCollisions :: World [BulletCollision]
 handleBulletCollisions = do
     -- get the list of all bot IDs
     bids <- gets $ toListOf (wldBots.traverse.botID)
-    handler bids
-  where handler [] = return ()
+    handler [] bids
+  where handler acc [] = return acc
         -- step through the bot ids
-        handler (bid:bids) = do
+        handler acc (bid:bids) = do
           -- get all the bullets
           bullets <- use wldBullets
           -- see if the current bot is colliding with any of the bullets
-          bulletsm <- applyBot bid $ mapM testBulletHit bullets
+          (hitBullets, otherBullets) <- applyBot bid $ partitionM testBulletHit bullets
           -- remove the bullets that have collided
-          wldBullets .= catMaybes bulletsm
+          wldBullets .= otherBullets
+          -- indicate which bullets hit
+          let bulResult bul = BulletCollision (bul^.bulOwner) bid (bul^.bulPower)
+              res = map bulResult hitBullets
           -- keep looping
-          handler bids
+          handler (res ++ acc) bids
 
--- | Steps the world (minus the bots) forward a tick.
-stepWorld :: Double -> World ()
+-- | Steps the world (minus the bots) forward a tick, returns a list of
+-- bullet collisions.
+stepWorld :: Double -> World [BulletCollision]
 stepWorld passed = do
   stepBullets passed
   handleBulletCollisions
@@ -106,46 +92,95 @@ generateSpawnPositions :: MonadRandom m => Int -> Scalar -> Vec -> m [Vec]
 generateSpawnPositions count margin size =
   replicateM count (getRandomR (1 |* margin, size - 1 |* (2*margin)))
 
-mainLoop :: Surface -> [UpdateChan] -> ResponseChan -> IOWorld ()
-mainLoop surface updateChan responseChan = do
-    time <- liftIO $ getTicksSeconds
-    loop time 0
+-- | Collect the responses to a request from all the robots,
+-- blocking until every robot has responded.
+collectResponses :: Chan BotResponse -> Int -> IO ([BotState], [Bullet])
+collectResponses chan numBots = do
+    responses <- newArray (1, numBots) Nothing :: IO (IOArray BotID (Maybe BotState))
+    bullets   <- collect numBots [] responses
+    results   <- getElems responses
+    return $ (catMaybes results, bullets)
   where
-    loop prevTime sinceTick = do
-      -- Yield the CPU a little
-      liftIO $ delay 0
-      time <- liftIO $ getTicksSeconds
-      let passed = time - prevTime
+    collect 0 bullets _ = return bullets
+    collect n bullets responses = do
+      (BotResponse bid bot buls) <- readChan chan
+      writeArray responses bid (Just bot)
+      collect (n - 1) (buls ++ bullets) responses
 
-      -- we don't want to update too fast
-      if passed >= 0.01 then do
-        tickTime <- asks (view ruleTickTime)
-        let (doTick, sinceTick') = if sinceTick > tickTime
-                                      then (True, sinceTick - tickTime)
-                                      else (False, sinceTick)
+-- | Collect responses and use them to update the world state.
+updateWorldWithResponses :: Chan BotResponse -> Int -> IOWorld ()
+updateWorldWithResponses chan numBots = do
+  (newBots, bullets) <- liftIO $ collectResponses chan numBots
+  wldBots    .= newBots
+  wldBullets %= (bullets ++)
 
-        -- tell the bots to update themselves
-        state <- get
-        let botStates = state^.wldBots
-            botUpdates = zip4 botStates (repeat state) (repeat passed) (repeat doTick)
-        liftIO $ zipWithM_ writeChan updateChan botUpdates
+-- | Gets the current time in milliseconds.
+-- NB getTicks is from SDL and gives the time in milliseconds, unrelated to Robo ticks
+getTime :: IO Int
+getTime = fromIntegral <$> getTicks
 
-        -- get the responses back
-        numBots <- length <$> use wldBots
-        updateWorldWithResponses responseChan numBots
+-- | The World's main loop.
+mainStep :: Surface -> [Chan BotUpdate] -> Chan BotResponse -> IOWorld Bool
+mainStep surface updateChan responseChan = do
+  -- Yield the CPU a little
+  liftIO $ delay 0
+  time      <- use wldTime
+  time'     <- liftIO $ getTime
+  stepIval  <- asks (view ruleStepInterval)
 
-        -- do further world updates
-        promoteContext (stepWorld passed)
+  -- add to the time since last step
+  wldSinceStep += time' - time
 
-        -- draw the world
-        drawWorld surface
-        liftIO (SDL.flip surface)
+  -- update the stored time
+  wldTime .= time'
 
-        -- loop back round unless we get an exit event
-        event <- liftIO pollEvent
-        unless (event == Quit) $ loop time (sinceTick' + passed)
-      else loop prevTime sinceTick
+  -- only continue if enough time has passed since the last step
+  sinceStep <- use wldSinceStep
+  -- liftIO $ print sinceStep
+  when (sinceStep >= stepIval) $ do
+    -- subtract the step interval
+    wldSinceStep -= stepIval
 
+    wldSinceTick += 1
+    sinceTick <- use wldSinceTick
+    tickSteps <- asks (view ruleTickSteps)
+    -- work out whether we need to do a tick now
+    doTick <- if sinceTick >= tickSteps
+                 then do wldSinceTick -= tickSteps
+                         return True
+                 else return False
+
+    -- the time in seconds since the last step
+    let passed = 1e-3 * fromIntegral stepIval
+    -- update the world, getting back bullet collisions
+    bulletCollisions <- promoteContext (stepWorld passed)
+    let wasBotInvolved bid col = col^.bcolAggressor == bid || col^.bcolVictim == bid
+
+    -- tell the bots to update themselves
+    worldState <- get
+    botStates <- use wldBots
+    let mkUpdate botState = BotUpdate
+          { updateState  = botState
+          , updateWorld  = worldState
+          , updatePassed = passed
+          , updateDoTick = doTick
+          , updateBulletCollisions
+            = filter (wasBotInvolved (botState^.botID)) bulletCollisions
+          }
+        botUpdates = map mkUpdate botStates
+    liftIO $ zipWithM_ writeChan updateChan botUpdates
+
+    -- get the responses back
+    numBots <- length <$> use wldBots
+    updateWorldWithResponses responseChan numBots
+
+    -- draw the world
+    drawWorld surface
+    liftIO (SDL.flip surface)
+  ev <- liftIO $ pollEvent
+  return $ ev /= Quit
+
+-- | Where the monads kick in.
 worldMain :: Surface -> [BotSpec] -> IOWorld ()
 worldMain surface specs = do
   -- initialise the bot states
@@ -161,39 +196,45 @@ worldMain surface specs = do
   updateChans  <- liftIO $ replicateM numBots newChan
   responseChan <- liftIO $ newChan
 
-  -- start the bot threads, each with their update channel
+  -- start the bot threads, each with their own update channel
   rules <- ask
-  let runBot' (spec, state, bid, updChan) = runBot rules spec state bid updChan responseChan
+  let runBot' (spec, botState, bid, updChan) =
+        runBot rules spec botState bid updChan responseChan
   liftIO $ mapM_ (forkIO . runBot') (zip4 specs bots [1..] updateChans)
+
+  -- make sure the world knows what time it is (Robo time!)
+  time <- liftIO getTime
+  wldTime .= time
 
   -- get the responses to initialisation
   updateWorldWithResponses responseChan numBots
 
   -- start the main loop
-  mainLoop surface updateChans responseChan
-
+  whileContext $ mainStep surface updateChans responseChan
 
 -- | Run a battle with the given rules and robots.
-runWorld :: BattleRules -> [BotSpec] -> IO ()
+runWorld :: Rules -> [BotSpec] -> IO ()
 runWorld rules specs = withInit [InitEverything] $ do
   -- initialise libraries
   void TTF.init
 
-  -- initialise the game
   -- make the window
   let screenSize = rules^.ruleArenaSize
       (width, height) = (round (screenSize^.vX), round (screenSize^.vY))
   screen <- setVideoMode width height 32 [SWSurface]
 
   -- initialise the world state
-  let worldState =
-        WorldState { _wldBots  = []
-                   , _wldRect  = rect (screenSize |* 0.5) screenSize 0
-                   , _wldBullets = []
-                   }
+  let worldState = WorldState
+        { _wldBots      = []
+        , _wldRect      = rect (screenSize |* 0.5) screenSize 0
+        , _wldBullets   = []
+        , _wldTime      = 0
+        , _wldSinceStep = 0
+        , _wldSinceTick = 0
+        }
 
-  -- start the main loop
-  evalIOContext (worldMain screen specs) rules worldState
+  -- jump into the World monad
+  evalContext (worldMain screen specs) rules worldState
 
   -- clean up
   TTF.quit

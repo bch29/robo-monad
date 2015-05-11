@@ -10,30 +10,30 @@ import Control.Monad
 type TestBot = Robo TestBotState
 
 data TestBotState = TestBotState
-  { _testPid :: PidController Scalar Scalar
-  , _gunPid  :: PidController Scalar Scalar
-  , _target  :: Vec
+  { _turningPid  :: PidController Scalar Scalar
+  , _gunPid      :: PidController Scalar Scalar
+  , _target      :: Vec
   , _targetAngle :: Angle
-  , _ticks   :: Int
-  , _enemyPos :: Maybe Vec
+  , _ticks       :: Int
+  , _enemyPos    :: Maybe Vec
   }
 
 makeLenses ''TestBotState
 
 myInitialState :: TestBotState
 myInitialState = TestBotState
-  { _testPid = makePidSimple 50 0 30
-  , _gunPid  = makePid 15 1 1 0.5
-  , _target  = vec 400 400
+  { _turningPid  = makePidSimple 50 0 30
+  -- PID controller with no D gain used for spray effect
+  , _gunPid      = makePidSimple 200 0 0
+  , _target      = vec 400 400
   , _targetAngle = 0
-  , _ticks   = 0
-  , _enemyPos = Nothing
+  , _ticks       = 0
+  , _enemyPos    = Nothing
   }
 
 initBot :: TestBot ()
 initBot = do
-  setGunSpeed 2
-  setThrust 500
+  setThrust 250
   setRadarSpeed 16
 
 run :: TestBot ()
@@ -52,8 +52,8 @@ run = do
      targ <- use target
      ang  <- getHeading
      let tAng = pos `angleTo` targ
-     testPid %= updatePid (angNormRelative (tAng - ang))
-     setTurnPower =<< use (testPid.pidOut)
+     turningPid %= updatePid (angNormRelative (tAng - ang))
+     setTurnPower =<< use (turningPid.pidOut)
 
   -- gun pid controller
   mep <- use enemyPos
@@ -65,20 +65,30 @@ run = do
           correction = (dist / 800) * (7*pi/24)
           tAng = pos `angleTo` ep + correction
       gunPid %= updatePid (angNormRelative (tAng - ang))
-      setGunSpeed =<< use (gunPid.pidOut)
+      setGunTurnPower =<< use (gunPid.pidOut)
+      setFiring 0.5
     Nothing -> return ()
 
 scan :: ScanData -> TestBot ()
 scan (ScanData distance angle) = do
   pos <- getPosition
   enemyPos .= Just (pos + (vecFromAngle angle |* distance))
-  setFiring 2
+
+myOnHitByBullet :: TestBot ()
+myOnHitByBullet = do
+  return ()
+
+myOnBulletHit :: TestBot ()
+myOnBulletHit = do
+  return ()
 
 testbot :: BotSpec
 testbot = BotSpec
-  { botName = "testbot"
+  { botName         = "testbot"
   , botInitialState = myInitialState
-  , onInit = initBot
-  , onTick = run
-  , onScan = scan
+  , onInit          = initBot
+  , onTick          = run
+  , onScan          = scan
+  , onHitByBullet   = myOnHitByBullet
+  , onBulletHit     = myOnBulletHit
   }

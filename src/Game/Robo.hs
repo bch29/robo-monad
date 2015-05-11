@@ -1,14 +1,11 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes, Trustworthy #-}
 module Game.Robo
   -- Re-exported
-  ( BattleRules (..), ruleMaxThrust, ruleMaxAngThrust, ruleMaxGunSpeed, ruleMaxFirePower, ruleMinFirePower
-                    , ruleMass, ruleDriveFriction, ruleTurnFriction, ruleBotSize, ruleGunSize
-                    , ruleBulletSpeed, ruleArenaSize, ruleTickTime
+  ( Rules (..), module Game.Robo.Core.Rules
   , BotSpec (..)
   , ScanData (..)
   , Robo
   , vec, rect
-  , defaultRules
 
   , runWorld
 
@@ -30,9 +27,10 @@ module Game.Robo
   , getPosition, getHeading, getHeadingVec, getSpeed, getAngVel
   , getGunRelHeading, getGunAbsHeading
   , getRadarRelHeading, getRadarAbsHeading
+  , getEnergy
   -- control
   , setThrust, setTurnPower
-  , setGunSpeed, setFiring
+  , setGunTurnPower, setFiring
   , setRadarSpeed
   -- logging
   , printLine, printShow
@@ -55,6 +53,7 @@ import Data.Vector.Class hiding (Scalar)
 
 import Game.Robo.Maths
 import Game.Robo.Core
+import Game.Robo.Core.Rules
 import Game.Robo.Core.World
 
 ---------------------------------
@@ -68,7 +67,7 @@ type Scalar = Double
 ---------------------------------
 
 -- | Get the value of a rule.
-getRule :: Getter' BattleRules a -> Robo s a
+getRule :: Getter' Rules a -> Robo s a
 getRule rule = withBot $ asks (view rule)
 
 -- | Get the robot's current position in pixels relative to the bottom-left corner.
@@ -113,6 +112,11 @@ getRadarAbsHeading = do
   radarHeading <- getRadarRelHeading
   return $ botHeading + radarHeading
 
+-- | Get the robot's current available energy. See @ruleMaxEnergy@ and
+-- @ruleEnergyRechargeRate@.
+getEnergy :: Robo s Scalar
+getEnergy = useBot botEnergy
+
 -- | Utility function to convert an angle accessor to one that returns a vector
 -- in the direction of the angle instead.
 angleAsVec :: Robo s Angle -> Robo s Vec
@@ -127,14 +131,14 @@ angleAsVec = (vecFromAngle <$>)
 setThrust :: Scalar -> Robo s ()
 setThrust = setBotCapped ruleMaxThrust botThrust
 
--- | Set the turning power in the anticlockwise direction (or clockwise if negative)
+-- | Set the turning power in the clockwise direction (or anticlockwise if negative)
 -- Limited by game rules.
 setTurnPower :: Scalar -> Robo s ()
 setTurnPower = setBotCapped ruleMaxAngThrust botAngThrust
 
--- | Set the rotation speed of the gun (positive is anticlockwise).
-setGunSpeed :: Scalar -> Robo s ()
-setGunSpeed = setBotCapped ruleMaxGunSpeed (botGun.gunAngVel)
+-- | Set the turning power of the gun (positive is clockwise).
+setGunTurnPower :: Scalar -> Robo s ()
+setGunTurnPower = setBotCapped ruleMaxGunTurnPower (botGun.gunAngAcc)
 
 -- | Set the firing power of the gun, where 0 means don't fire. Limited by game rules.
 setFiring :: Scalar -> Robo s ()
@@ -147,7 +151,7 @@ setFiring power = withBot $ do
        | power > max -> botGun.gunFiring .= max
        | otherwise -> botGun.gunFiring .= power
 
--- | Set the rotation speed of the radar (positive is anticlockwise).
+-- | Set the rotation speed of the radar (positive is clockwise).
 setRadarSpeed :: Scalar -> Robo s ()
 setRadarSpeed = setBotCapped ruleMaxRadSpeed (botRadar.radAngVel)
 
@@ -167,22 +171,16 @@ printShow = printLine . show
 --  UTILITY FUNCTIONS
 ---------------------------------
 
-instance MonadRandom BotWrapper where
-  getRandom   = BotWrapper getRandom
-  getRandoms  = BotWrapper getRandoms
-  getRandomR  = BotWrapper . getRandomR
-  getRandomRs = BotWrapper . getRandomRs
-
 withBot :: Bot a -> Robo s a
-withBot bot = lift (BotWrapper bot)
+withBot bot = Robo (lift (BotWrapper bot))
 
 useBot :: FoldLike a BotState a' a b' -> Robo s a
 useBot = withBot . use
 
-setBotCapped :: (Num a, Ord a) => Getter' BattleRules a -> Setter' BotState a -> a -> Robo s ()
+setBotCapped :: (Num a, Ord a) => Getter' Rules a -> Setter' BotState a -> a -> Robo s ()
 setBotCapped capBy setter val = withBot (setCapped capBy setter val)
 
-setCapped :: (Num a, Ord a) => Getter' BattleRules a -> Setter' BotState a -> a -> Bot ()
+setCapped :: (Num a, Ord a) => Getter' Rules a -> Setter' BotState a -> a -> Bot ()
 setCapped capBy setter val = do
   limit <- asks (view capBy)
   case () of

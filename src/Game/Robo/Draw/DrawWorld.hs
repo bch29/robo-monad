@@ -14,7 +14,7 @@ import Control.Monad.Reader
 import Data.Traversable
 import Control.Applicative ((<$>))
 
-import Game.Robo.Core.Types
+import Game.Robo.Core
 import Game.Robo.Draw.DrawBot
 import Game.Robo.Maths
 
@@ -33,7 +33,8 @@ drawWorld surface = do
     liftIO . void $ fillRect surface Nothing (Pixel 0xFF100808)
 
     bots <- use wldBots
-    mapM_ (drawBot surface) bots
+    let drawBot' bot = applyBot (bot^.botID) (drawBot surface)
+    mapM_ drawBot' bots
 
     buls <- use wldBullets
     mapM_ (drawBullet surface) buls

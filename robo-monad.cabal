@@ -17,11 +17,15 @@ cabal-version:       >=1.10
 
 executable robo-demo
   main-is:             Main.hs
-  other-modules:       Crazy, TestBot
+  other-modules:       Crazy, TestBot, ExampleBot
   build-depends:       base >=4.6 && <4.7, robo-monad
   hs-source-dirs:      demo
   default-language:    Haskell2010
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:
+    -O2
+    -threaded
+    -rtsopts
+    "-with-rtsopts=-N"
 
 library
   exposed-modules:     Game.Robo,
@@ -31,15 +35,18 @@ library
 
   other-modules:       Game.Robo.Core,
                        Game.Robo.Core.Types,
-                       Game.Robo.Core.Bot,
+                       Game.Robo.Core.Rules,
                        Game.Robo.Core.World,
-                       Game.Robo.Draw.DrawBot,
-                       Game.Robo.Draw.DrawWorld
+                       Game.Robo.Core.Bot,
+                       Game.Robo.Draw.DrawWorld,
+                       Game.Robo.Draw.DrawBot
   build-depends:       base >=4.6 && <4.7,
-                       mtl, MonadRandom, random, array,
+                       mtl, MonadRandom, random, array, deepseq,
                        AC-Vector,
                        lens-family, lens-family-th,
                        SDL, SDL-gfx, SDL-ttf
   hs-source-dirs:      src
   default-language:    Haskell2010
-  ghc-options:         -O3
+  ghc-options:
+    -O2
+    -threaded

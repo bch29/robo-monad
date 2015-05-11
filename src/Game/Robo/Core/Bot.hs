@@ -6,25 +6,17 @@ import Lens.Family2.State
 import Control.Concurrent
 
 import Control.Applicative
-import Data.Traversable
 import Control.Monad
-import Control.Monad.Writer
+import Control.Monad.Writer.Strict
 import Control.Monad.Reader
-import Control.Monad.State
-import Control.Monad.Random
-import System.Random
-
-import Data.Array.MArray
-import Data.Array.IO
+import Control.Monad.State.Strict
 
 import Data.Vector.Class
 import Data.List
 import Data.Ord
-import Data.Maybe
 
 import Game.Robo.Core
 import Game.Robo.Maths
-import Game.Robo.Draw.DrawWorld
 
 initialBotState ::  Scalar -> BotID -> Vec -> BotState
 initialBotState mass bid pos =
@@ -38,12 +30,14 @@ initialBotState mass bid pos =
 
            , _botGun   = GunState   { _gunHeading = 0
                                     , _gunFiring  = 0
-                                    , _gunAngVel  = 0 }
+                                    , _gunAngVel  = 0
+                                    , _gunAngAcc  = 0 }
 
            , _botRadar = RadarState { _radHeading = 0
                                     , _radAngVel  = 0 }
 
            , _botMass      = mass
+           , _botEnergy    = 0
            }
 
 -- | Calculate the robot's new position after some time has passed.
@@ -74,40 +68,68 @@ stepBotMotion passed = do
   botSpeed   .= speed'
   botPos     .= pos'
 
--- | Creates a bullet moving away from the end of the robot's gun,
--- and sets the firepower back to 0.
-fireBullet :: Bot Bullet
+-- | If it is possible to fire with the amount of energy we have,
+-- create a bullet moving away from the end of the robot's gun,
+-- subtract the energy cost, and set the firepower back to 0.
+fireBullet :: Bot [Bullet]
 fireBullet = do
+  energy <- use botEnergy
   firing <- use (botGun.gunFiring)
-  pos    <- use botPos
-  bid    <- use botID
-  speed  <- asks (view ruleBulletSpeed)
-  gunSize<- asks (view ruleGunSize)
-  botAng <- use botHeading
-  gunAng <- use (botGun.gunHeading)
-  let ang = botAng + gunAng
-      vel = rotateVec ang (vec speed 0)
-      offset = rotateVec ang (vec (gunSize^.vX) 0)
-      bul = Bullet { _bulVel = vel
-                   , _bulPos = pos + offset
-                   , _bulPower = firing
-                   , _bulOwner = bid }
+  if firing <= energy then do
+    pos    <- use botPos
+    bid    <- use botID
+    speed  <- asks (view ruleBulletSpeed)
+    gunSize<- asks (view ruleGunSize)
+    botAng <- use botHeading
+    gunAng <- use (botGun.gunHeading)
+    let ang = botAng + gunAng
+        vel = rotateVec ang (vec speed 0)
+        offset = rotateVec ang (vec (gunSize^.vX) 0)
+        bul = Bullet { _bulVel = vel
+                     , _bulPos = pos + offset
+                     , _bulPower = firing
+                     , _bulOwner = bid }
 
-  botGun.gunFiring .= 0
+    botGun.gunFiring .= 0
+    botEnergy .= (energy - firing)
+    return [bul]
+  else
+    return []
 
-  return bul
 
 -- | Update the robot's gun, returning a list of newly fired bullets.
 stepBotGun :: Double -> Bool -> Bot [Bullet]
 stepBotGun passed doTick = do
+  -- motion
+  gunFric <- asks (view ruleGunFriction)
+  acc <- use (botGun.gunAngAcc)
   vel <- use (botGun.gunAngVel)
-  botGun.gunHeading += vel * passed
+  heading <- use (botGun.gunHeading)
+
+  let vel' = gunFric * (vel + acc * passed)
+      heading' = angNormAbsolute (heading + vel' * passed)
+
+  botGun.gunAngVel  .= vel'
+  botGun.gunHeading .= heading'
+
+  -- firing
   firing <- use (botGun.gunFiring)
   bullets <- if doTick && firing > 0
-                then (:[]) <$> fireBullet
+                then fireBullet
                 else return []
 
   return bullets
+
+-- | Deal with energy regeneration.
+stepBotEnergy :: Double -> Bot ()
+stepBotEnergy passed = do
+  energy <- use botEnergy
+  maxEnergy <- asks (view ruleMaxEnergy)
+  perSecond <- asks (view ruleEnergyRechargeRate)
+  let energy' = energy + perSecond * passed
+  if energy' <= maxEnergy
+     then botEnergy .= energy'
+     else botEnergy .= maxEnergy
 
 -- | Update the motion of the robot's radar.
 stepBotRadar :: Double -> Bot ()
@@ -120,6 +142,7 @@ stepBot :: Double -> Bool -> Bot [Bullet]
 stepBot passed doTick = do
   stepBotMotion passed
   bullets <- stepBotGun passed doTick
+  stepBotEnergy passed
   stepBotRadar passed
   return bullets
 
@@ -159,60 +182,74 @@ tryScan bots = do
       in  Just $ ScanData dist ang
     _       -> Nothing
 
--- | Tests if a bullet has hit the robot, and returns Nothing if so.
-testBulletHit :: Bullet -> Bot (Maybe Bullet)
+-- | Tests if a bullet has hit the robot, and returns True if so.
+testBulletHit :: Bullet -> Bot Bool
 testBulletHit bul = do
   bid <- use botID
   box <- botRect
   let bpos = bul^.bulPos
       owner = bul^.bulOwner
-  return $ if owner /= bid && withinRect bpos box
-              then Nothing
-              else Just bul
+  return $ owner /= bid && withinRect bpos box
 
 -- | Print a log from a robot with the given name to the console.
 writeLog :: String -> [String] -> IO ()
 writeLog name = putStr . unlines . map ((name ++ ": ") ++)
 
-botMain :: BotSpec -> BotID -> UpdateChan -> ResponseChan -> IOBot ()
+botMain :: BotSpec -> BotID -> Chan BotUpdate -> Chan BotResponse -> IOBot ()
 botMain spec bid updateChan responseChan =
   case spec of
-    BotSpec name initialState onInit' onTick' onScan' -> do
+    BotSpec name initialState onInit' onTick' onScan' onHitByBullet' onBulletHit' -> do
       -- run the robot's initialisation method
       (_, userState1) <- promoteContext $ runRobo onInit' initialState
-      state <- get
+      state' <- get
 
       -- send the initialisation results back to the main thread
-      liftIO $ writeChan responseChan (bid, state, [])
+      liftIO $ writeChan responseChan $ BotResponse
+        { responseID = bid
+        , responseState = state'
+        , responseBullets = [] }
 
+      let step userState = do
+            -- wait until the main thread tells us to advance
+            BotUpdate botState worldState passed doTick bulletCollisions
+              <- liftIO $ readChan updateChan
+
+            let wasAggressor col = col^.bcolAggressor == bid
+                wasVictim    col = col^.bcolVictim    == bid
+                bulletHit = any wasAggressor bulletCollisions
+                wasHit    = any wasVictim    bulletCollisions
+
+            -- sync up our state to what the world thinks our state is
+            put botState
+
+            -- update the robot state
+            (bullets, userState') <- promoteContext $ do
+              bullets <- stepBot passed doTick
+              mscan   <- tryScan (worldState^.wldBots)
+              let roboActions = do
+                    when wasHit    onHitByBullet'
+                    when bulletHit onBulletHit'
+                    when doTick    onTick'
+                    case mscan of
+                      Just scan -> onScan' scan
+                      _ -> return ()
+              (_, userState') <- runRobo roboActions userState
+              return (bullets, userState')
+
+            -- send our new state, and any bullets fired, back to the main thread
+            botState' <- get
+            liftIO $ writeChan responseChan $ BotResponse
+              { responseID = bid
+              , responseState = botState'
+              , responseBullets = bullets }
+
+            -- loop forever (until the thread is terminated)
+            return (Just userState')
       -- start the main loop
-      loop userState1 where
-        loop userState = do
-          -- wait until the main thread tells us to advance
-          (botState, worldState, passed, doTick) <- liftIO $ readChan updateChan
-          put botState
-
-          -- update the robot state
-          (bullets, userState') <- promoteContext $ do
-            bullets <- stepBot passed doTick
-            mscan   <- tryScan (worldState^.wldBots)
-            let roboActions = do
-                  when doTick onTick'
-                  case mscan of
-                    Just scan -> onScan' scan
-                    _ -> return ()
-            (_, userState') <- runRobo roboActions userState
-            return (bullets, userState')
-
-          -- send our new state, and any bullets fired, back to the main thread
-          botState' <- get
-          liftIO $ writeChan responseChan (bid, botState', bullets)
-
-          -- loop forever (until the thread is terminated)
-          loop userState'
+      iterateContext userState1 step
 
 -- | Run a robot. This never terminates and is designed to be called in its own thread.
 -- Communicates with the World thread via channels.
-runBot :: BattleRules -> BotSpec -> BotState -> BotID -> UpdateChan -> ResponseChan -> IO ()
+runBot :: Rules -> BotSpec -> BotState -> BotID -> Chan BotUpdate -> Chan BotResponse -> IO ()
 runBot rules spec state bid updateChan responseChan =
-  evalIOContext (botMain spec bid updateChan responseChan) rules state
+  evalContext (botMain spec bid updateChan responseChan) rules state

@@ -10,7 +10,7 @@ import Game.Robo.PidController
 import Crazy
 import TestBot
 
-myRules :: BattleRules
+myRules :: Rules
 myRules = defaultRules
 
 main :: IO ()
