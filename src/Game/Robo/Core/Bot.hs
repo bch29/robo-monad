@@ -214,7 +214,7 @@ tryScan bots = do
     bot : _ ->
       let thatPos = bot^.botPos
           dist = vecMag (pos - thatPos)
-          ang  = pos `angleTo` thatPos
+          ang  = angNormAbsolute $ pos `angleTo` thatPos
       in  Just $ ScanData dist ang
     _       -> Nothing
 

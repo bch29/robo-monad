@@ -58,6 +58,9 @@ instance Num Vec where
   signum (Vec x y) = Vec (signum x) (signum y)
   fromInteger i = Vec x x where x = fromInteger i
 
+instance Eq Vec where
+  Vec a b == Vec x y = a == x && b == y
+
 -- This is only really used for @fromRational@.
 instance Fractional Vec where
   (Vec a b) / (Vec x y) = Vec (a / x) (b / y)

@@ -227,8 +227,11 @@ data RadarState = RadarState
 
 -- | Data received from scanning an enemy robot.
 data ScanData = ScanData
-  { scanDistance :: !Scalar -- The distance to the scanned robot from the scanning robot.
-  , scanAngle    :: !Angle  -- The angle of the scanned robot relative to the scanning robot.
+  {
+  -- | The distance to the scanned robot from the scanning robot.
+    scanDistance :: !Scalar
+  -- | The absolute angle of the scanned robot from the scanning robot.
+  , scanAngle    :: !Angle
   }
 
 -- | Data received when colliding with a wall.
