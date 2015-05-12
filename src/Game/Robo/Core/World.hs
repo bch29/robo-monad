@@ -2,7 +2,7 @@
 Module      : Game.Robo.Core.World
 Description : Handles the main simulation code.
 Copyright   : (c) Bradley Hardy, 2015
-License     : BSD3
+License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable (depends on SDL)
@@ -12,7 +12,6 @@ Portability : non-portable (depends on SDL)
 module Game.Robo.Core.World (runWorld) where
 
 import Graphics.UI.SDL as SDL hiding (Rect)
-import Graphics.UI.SDL.TTF as TTF
 
 import Lens.Family2
 import Lens.Family2.State
@@ -231,9 +230,6 @@ worldMain surface specs = do
 -- > main = runWorld defaultRules [mybot1, mybot2, mybot3]
 runWorld :: Rules -> [BotSpec] -> IO ()
 runWorld rules specs = withInit [InitEverything] $ do
-  -- initialise libraries
-  void TTF.init
-
   -- make the window
   let screenSize = rules^.ruleArenaSize
       (width, height) = (round (screenSize^.vX), round (screenSize^.vY))
@@ -251,6 +247,3 @@ runWorld rules specs = withInit [InitEverything] $ do
 
   -- jump into the World monad
   evalContext (worldMain screen specs) rules worldState
-
-  -- clean up
-  TTF.quit

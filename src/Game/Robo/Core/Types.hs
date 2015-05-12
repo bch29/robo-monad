@@ -2,7 +2,7 @@
 Module      : Game.Robo.Core.Types
 Description : Most of the types required throughout.
 Copyright   : (c) Bradley Hardy, 2015
-License     : BSD3
+License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable (depends on SDL)

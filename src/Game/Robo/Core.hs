@@ -2,7 +2,7 @@
 Module      : Game.Robo.Core
 Description : Core operations shared by lots of parts of the game engine.
 Copyright   : (c) Bradley Hardy, 2015
-License     : BSD3
+License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable (depends on SDL)

@@ -1,4 +1,16 @@
+{-|
+Module      : SittingDuck
+Description : A robot that just sits there and does nothing.
+Copyright   : (c) Bradley Hardy, 2015
+License     : GPL3
+Maintainer  : bradleyhardy@live.com
+Stability   : experimental
+Portability : non-portable (depends on SDL)
+
+-}
+
 {-# LANGUAGE TemplateHaskell #-}
+
 module SittingDuck (sittingDuck) where
 
 import Game.Robo

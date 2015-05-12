@@ -2,7 +2,7 @@
 Module      : Game.Robo.Core.Rules
 Description : Provides a default set of rules and lenses for Rules.
 Copyright   : (c) Bradley Hardy, 2015
-License     : BSD3
+License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable (depends on SDL)

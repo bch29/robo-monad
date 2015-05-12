@@ -1,4 +1,16 @@
+{-|
+Module      : Crazy
+Description : A robot that moves around randomly and bounces off walls.
+Copyright   : (c) Bradley Hardy, 2015
+License     : GPL3
+Maintainer  : bradleyhardy@live.com
+Stability   : experimental
+Portability : non-portable (depends on SDL)
+
+-}
+
 {-# LANGUAGE TemplateHaskell #-}
+
 module Crazy (crazy) where
 
 import Game.Robo

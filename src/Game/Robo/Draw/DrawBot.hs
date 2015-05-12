@@ -2,7 +2,7 @@
 Module      : Game.Robo.Draw.DrawBot
 Description : Handles drawing of robots using SDL.
 Copyright   : (c) Bradley Hardy, 2015
-License     : BSD3
+License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable (depends on SDL)

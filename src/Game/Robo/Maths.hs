@@ -2,7 +2,7 @@
 Module      : Game.Robo.Maths
 Description : Mathematical functions that are useful for programming robots.
 Copyright   : (c) Bradley Hardy, 2015
-License     : BSD3
+License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable (depends on SDL)

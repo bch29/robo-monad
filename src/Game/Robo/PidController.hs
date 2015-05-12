@@ -2,7 +2,7 @@
 Module      : Game.Robo.PidController
 Description : Typeclass-based PID controller implementation for use with robots.
 Copyright   : (c) Bradley Hardy, 2015
-License     : BSD3
+License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable (depends on SDL)

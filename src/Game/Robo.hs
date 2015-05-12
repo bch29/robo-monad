@@ -2,7 +2,7 @@
 Module      : Game.Robo
 Description : The main module you need to import to make your own robots.
 Copyright   : (c) Bradley Hardy, 2015
-License     : BSD3
+License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable (depends on SDL)

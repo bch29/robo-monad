@@ -1,4 +1,16 @@
+{-|
+Module      : ExampleBot
+Description : A robot that does nothing and can be used as a template for your own robots.
+Copyright   : (c) Bradley Hardy, 2015
+License     : GPL3
+Maintainer  : bradleyhardy@live.com
+Stability   : experimental
+Portability : non-portable (depends on SDL)
+
+-}
+
 {-# LANGUAGE TemplateHaskell #-}
+
 module ExampleBot (examplebot) where
 
 -- Import of Game.Robo required, Maths and PidController
