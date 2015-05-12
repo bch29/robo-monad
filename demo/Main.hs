@@ -1,17 +1,12 @@
-{-# LANGUAGE TemplateHaskell #-}
 module Main where
 
-import Control.Applicative
-
 import Game.Robo
-import Game.Robo.Maths
-import Game.Robo.PidController
 
-import TestBot
+import WallHugger
 import Crazy
 
 myRules :: Rules
 myRules = defaultRules
 
 main :: IO ()
-main = runWorld myRules [crazy, testbot]
+main = runWorld myRules [crazy, wallhugger]

@@ -1,58 +1,50 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Crazy (crazy) where
 
-import Control.Applicative
-import Control.Monad
-
 import Game.Robo
 import Game.Robo.Maths
 import Game.Robo.PidController
-import Game.Robo.Extra
+
+import Control.Monad
+import Control.Applicative
 
 type Crazy = Robo CrazyState
 
 data CrazyState = CrazyState
-     { _gunPid   :: PidController Double Double
-     }
+  { _turningPid  :: PidController Scalar Scalar
+  , _direction   :: Scalar
+  , _targetAngle :: Angle
+  }
 
 makeLenses ''CrazyState
 
-emptyState :: CrazyState
-emptyState = CrazyState
-  { _gunPid   = makePidSimple 200 0 100
+myInitialState :: CrazyState
+myInitialState = CrazyState
+  { _turningPid  = makePidSimple 50 0 30
+  -- PID controller with no D gain used for spray effect
+  , _direction   = 1
+  , _targetAngle = 0
   }
 
-myInit :: Crazy ()
-myInit = do
-  setThrust 1000
+initBot :: Crazy ()
+initBot = do
+  setThrust 500
+  ang <- getRandomR (-pi, pi)
+  -- set off in a random direction
+  targetAngle .= ang
 
-adjustGun :: Crazy ()
-adjustGun = do
-  arenaSize <- getRule ruleArenaSize
-  ourPos    <- getPosition
-  gunAngle  <- getGunAbsHeading
-  let targetPos  = arenaSize |* 0.5
-      offAngle   = ourPos `angleTo` targetPos
-      errorAngle = angNormRelative (offAngle - gunAngle)
-  gunPid %= updatePid errorAngle
-  out <- use (gunPid.pidOut)
-  setGunTurnPower out
+run :: Crazy ()
+run = do
+  -- pid controller towards target angle
+  do ang  <- getHeading
+     tAng <- use targetAngle
+     turningPid %= updatePid (angNormRelative (tAng - ang))
+     setTurnPower =<< use (turningPid.pidOut)
 
-myTick :: Crazy ()
-myTick = do
-  pos      <- getPosition
-  hv       <- getHeadingVec
-  dist     <- getWallDistR
-  perpDist <- getWallDistDirR (vecPerpR hv)
-  let perpTp = if perpDist < 100 then 10 else if perpDist < 200 then -16 else 0
-      normTp = if dist < 200 then 32 else 0
-  setTurnPower (perpTp + normTp)
-  adjustGun
-  setFiring 2
-
-myScan :: ScanData -> Crazy ()
-myScan s = do
-  return ()
+scan :: ScanData -> Crazy ()
+scan (ScanData distance angle) = do
+  -- fire a bullet when we see an enemy
+  setFiring 4
 
 myOnHitByBullet :: Crazy ()
 myOnHitByBullet = do
@@ -62,17 +54,43 @@ myOnBulletHit :: Crazy ()
 myOnBulletHit = do
   return ()
 
+chooseAngle :: Angle -> Crazy ()
+chooseAngle hitAngle = do
+  heading <- getHeading
+  dir <- use direction
+  let absAng = angNormAbsolute $ heading + hitAngle - pi/2
+      -- the new angle should be somewhat close to the opposite direction
+      -- to the angle made with the normal to the wall, so that we drive
+      -- away from the wall instead of back towards it
+      range = case () of
+                _ | absAng < pi/2   -> (-pi, -pi/2)
+                  | absAng < pi     -> (-pi/2, 0)
+                  | absAng < 3*pi/2 -> (0, pi/2)
+                  | otherwise       -> (pi/2, pi)
+      -- the angle is in the opposite direction if we are driving backwards
+      range' = if dir < 0
+                  then case range of (a, b) -> (a+pi, b+pi)
+                  else range
+  tang <- getRandomR range'
+  targetAngle .= tang
+
 myOnCollideWall :: WallCollisionData -> Crazy ()
 myOnCollideWall dat = do
-  return ()
+  direction *= -1
+  let a1 = abs (wcolAngle dat)
+      a2 = abs (angNormRelative $ wcolAngle dat - pi)
+  -- only choose a new angle when we aren't too close
+  -- to parallel (or anti-parallel) to the wall
+  when (a1 > 0.3 && a2 > 0.3) (chooseAngle (wcolAngle dat))
+  setThrust =<< (*) 500 <$> use direction
 
 crazy :: BotSpec
 crazy = BotSpec
   { botName         = "crazy"
-  , botInitialState = emptyState
-  , onInit          = myInit
-  , onTick          = myTick
-  , onScan          = myScan
+  , botInitialState = myInitialState
+  , onInit          = initBot
+  , onTick          = run
+  , onScan          = scan
   , onHitByBullet   = myOnHitByBullet
   , onBulletHit     = myOnBulletHit
   , onCollideWall   = myOnCollideWall
