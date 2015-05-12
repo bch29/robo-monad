@@ -38,8 +38,8 @@ module Game.Robo
   -- * Rules
   , Rules (..)
 
-  -- * Other Robo
-  , ScanData (..)
+  -- * Event data
+  , ScanData (..), WallCollisionData (..)
 
   -- * Random number generation
   , getRandom, getRandomR

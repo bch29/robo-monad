@@ -6,16 +6,14 @@ import Game.Robo.Maths
 import Game.Robo.PidController
 
 import Control.Monad
+import Control.Applicative
 
 type TestBot = Robo TestBotState
 
 data TestBotState = TestBotState
   { _turningPid  :: PidController Scalar Scalar
-  , _gunPid      :: PidController Scalar Scalar
-  , _target      :: Vec
+  , _direction   :: Scalar
   , _targetAngle :: Angle
-  , _ticks       :: Int
-  , _enemyPos    :: Maybe Vec
   }
 
 makeLenses ''TestBotState
@@ -24,55 +22,29 @@ myInitialState :: TestBotState
 myInitialState = TestBotState
   { _turningPid  = makePidSimple 50 0 30
   -- PID controller with no D gain used for spray effect
-  , _gunPid      = makePidSimple 200 0 0
-  , _target      = Vec 400 400
+  , _direction   = 1
   , _targetAngle = 0
-  , _ticks       = 0
-  , _enemyPos    = Nothing
   }
 
 initBot :: TestBot ()
 initBot = do
-  setThrust 250
-  setRadarSpeed 16
+  setThrust 500
+  ang <- getRandomR (-pi, pi)
+  -- set off in a random direction
+  targetAngle .= ang
 
 run :: TestBot ()
 run = do
-  ticks += 1
-  ticks %= (`mod` 20)
-
-  nt <- use ticks
-  when (nt == 0) $ do
-    targetAngle += pi / 3
-    tang <- use targetAngle
-    target .= Vec 400 400 + 200 *| vecFromAngle tang
-
-  -- pid controller towards target position
-  do pos  <- getPosition
-     targ <- use target
-     ang  <- getHeading
-     let tAng = pos `angleTo` targ
+  -- pid controller towards target angle
+  do ang  <- getHeading
+     tAng <- use targetAngle
      turningPid %= updatePid (angNormRelative (tAng - ang))
      setTurnPower =<< use (turningPid.pidOut)
 
-  -- gun pid controller
-  mep <- use enemyPos
-  case mep of
-    Just ep -> do
-      pos <- getPosition
-      ang <- getGunAbsHeading
-      let dist = vecMag (pos - ep)
-          correction = (dist / 800) * (7*pi/24)
-          tAng = pos `angleTo` ep + correction
-      gunPid %= updatePid (angNormRelative (tAng - ang))
-      setGunTurnPower =<< use (gunPid.pidOut)
-      setFiring 0.5
-    Nothing -> return ()
-
 scan :: ScanData -> TestBot ()
 scan (ScanData distance angle) = do
-  pos <- getPosition
-  enemyPos .= Just (pos + (vecFromAngle angle |* distance))
+  -- fire a bullet when we see an enemy
+  setFiring 4
 
 myOnHitByBullet :: TestBot ()
 myOnHitByBullet = do
@@ -81,6 +53,36 @@ myOnHitByBullet = do
 myOnBulletHit :: TestBot ()
 myOnBulletHit = do
   return ()
+
+chooseAngle :: Angle -> TestBot ()
+chooseAngle hitAngle = do
+  heading <- getHeading
+  dir <- use direction
+  let absAng = angNormAbsolute $ heading + hitAngle - pi/2
+      -- the new angle should be somewhat close to the opposite direction
+      -- to the angle made with the normal to the wall, so that we drive
+      -- away from the wall instead of back towards it
+      range = case () of
+                _ | absAng < pi/2   -> (-pi, -pi/2)
+                  | absAng < pi     -> (-pi/2, 0)
+                  | absAng < 3*pi/2 -> (0, pi/2)
+                  | otherwise       -> (pi/2, pi)
+      -- the angle is in the opposite direction if we are driving backwards
+      range' = if dir < 0
+                  then case range of (a, b) -> (a+pi, b+pi)
+                  else range
+  tang <- getRandomR range'
+  targetAngle .= tang
+
+myOnCollideWall :: WallCollisionData -> TestBot ()
+myOnCollideWall dat = do
+  direction *= -1
+  let a1 = abs (wcolAngle dat)
+      a2 = abs (angNormRelative $ wcolAngle dat - pi)
+  -- only choose a new angle when we aren't too close
+  -- to parallel (or anti-parallel) to the wall
+  when (a1 > 0.3 && a2 > 0.3) (chooseAngle (wcolAngle dat))
+  setThrust =<< (*) 500 <$> use direction
 
 testbot :: BotSpec
 testbot = BotSpec
@@ -91,4 +93,5 @@ testbot = BotSpec
   , onScan          = scan
   , onHitByBullet   = myOnHitByBullet
   , onBulletHit     = myOnBulletHit
+  , onCollideWall   = myOnCollideWall
   }

@@ -7,26 +7,36 @@ Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable (depends on SDL)
 
+A set of mathematical functions that are both useful for programming robots and used
+within the RoboMonad engine itself.
+
+Organised into the (somewhat overlapping) categories of Vectors, Angles, Rects
+and Other.
+
+Note all angles are in radians unless specified otherwise.
+
 -}
 
 {-# LANGUAGE Trustworthy #-} -- Enables compilation of robot files with Safe Haskell.
 
 module Game.Robo.Maths
-  -- vectors
-  ( angleTo, angleToHorizontal
+  (
+  -- * Vectors
+    angleTo, angleToHorizontal
   , vecFromAngle, rotateVec
   , vecMag, vecNorm
   , vecPerpR, vecPerpL
   , inSegment, inSegmentCentre
 
-  -- angles
+  -- * Angles
   , radToDeg, degToRad
   , angNormRelative, angNormAbsolute
 
-  -- rects
+  -- * Rects
   , withinRect, rectCorners, rectsIntersect
+  , rectEnclosesRect, rectCornersOutside
 
-  -- other
+  -- * Other
   , scanWall, getWallDist
   ) where
 
@@ -152,7 +162,22 @@ rectsIntersect a b =
     any (withinRect' a) (rectPoints b) ||
     any (withinRect' b) (rectPoints a)
   where withinRect' = flip withinRect
-        rectPoints rect = (rect^.rectCentre) : rectCorners rect
+
+-- | Does 'Rect' @a@ encloses 'Rect' @b@ completely?
+--
+-- > rectEnclosesRect a b
+rectEnclosesRect :: Rect -> Rect -> Bool
+rectEnclosesRect a b = null (rectCornersOutside a b)
+
+-- | Get the corners of @b@ that are outside @a@.
+--
+-- > rectCornersOutside a b
+rectCornersOutside :: Rect -> Rect -> [Vec]
+rectCornersOutside a b = filter (not . flip withinRect a) (rectCorners b)
+
+-- | Returns the set of all corners of the 'Rect' and also its centre.
+rectPoints :: Rect -> [Vec]
+rectPoints rect = (rect^.rectCentre) : rectCorners rect
 
 -----------------------------------
 -- OTHER
@@ -165,9 +190,7 @@ rectsIntersect a b =
 scanWall :: Vec -> Vec -> Vec -> Vec
 scanWall pos arenaSize dir =
   let Vec wx wy = arenaSize
-      Vec  x  y = pos
       Vec dx dy = dir
-      inX p = p >= 0 && p <= wx
       inY p = p >= 0 && p <= wy
 
       yLeft  = projectLeftY  pos dir
@@ -186,6 +209,7 @@ scanWall pos arenaSize dir =
         (1, -1)  -> if inY yRight then right else up
         (-1, 1)  -> if inY yLeft  then left  else down
         (-1, -1) -> if inY yLeft  then left  else up
+        _        -> error "scanWall"
 
 -- | Get the euclidean distance to the nearest wall in the given vector direction.
 --

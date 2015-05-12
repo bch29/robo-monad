@@ -29,8 +29,9 @@ module Game.Robo.Core.Types
   , BotID
   , BotState (..), BotSpec (..)
 
-  , GunState (..), RadarState      (..), ScanData (..)
+  , GunState (..), RadarState      (..)
   , Bullet   (..), BulletCollision (..)
+  , ScanData (..), WallCollisionData (..)
 
   , BotUpdate (..), BotResponse (..)
 
@@ -192,6 +193,8 @@ data BotSpec = forall s. BotSpec -- Note [ExistentialQuantification]
   , onHitByBullet :: Robo s ()
   -- | Executed when a bullet fired by this robot hits a target.
   , onBulletHit   :: Robo s ()
+  -- | Executed when the robot collides with a wall.
+  , onCollideWall :: WallCollisionData -> Robo s ()
   }
 
 {-
@@ -226,6 +229,13 @@ data RadarState = RadarState
 data ScanData = ScanData
   { scanDistance :: !Scalar -- The distance to the scanned robot from the scanning robot.
   , scanAngle    :: !Angle  -- The angle of the scanned robot relative to the scanning robot.
+  }
+
+-- | Data received when colliding with a wall.
+data WallCollisionData = WallCollisionData
+  {
+  -- | The angle that the robot makes with the hit wall.
+    wcolAngle :: !Angle
   }
 
 ---------------------------------

@@ -62,6 +62,10 @@ myOnBulletHit :: Crazy ()
 myOnBulletHit = do
   return ()
 
+myOnCollideWall :: WallCollisionData -> Crazy ()
+myOnCollideWall dat = do
+  return ()
+
 crazy :: BotSpec
 crazy = BotSpec
   { botName         = "crazy"
@@ -71,4 +75,5 @@ crazy = BotSpec
   , onScan          = myScan
   , onHitByBullet   = myOnHitByBullet
   , onBulletHit     = myOnBulletHit
+  , onCollideWall   = myOnCollideWall
   }

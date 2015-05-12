@@ -47,7 +47,7 @@ defaultRules = Rules
   , _ruleGunSize            = Vec 40 8
   , _ruleMaxGunTurnPower    = 64
   , _ruleGunFriction        = 0.85
-  , _ruleBulletSpeed        = 400
+  , _ruleBulletSpeed        = 600
   , _ruleMaxFirePower       = 4
   , _ruleMinFirePower       = 0.5
 
