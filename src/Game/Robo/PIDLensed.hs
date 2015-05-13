@@ -1,6 +1,6 @@
 {-|
-Module      : Game.Robo.PidController
-Description : Typeclass-based PID controller implementation for use with robots.
+Module      : Game.Robo.PIDLensed
+Description : Typeclass-based PID controller implementation for use with robots, using lenses.
 Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
 Maintainer  : bradleyhardy@live.com
@@ -9,17 +9,17 @@ Portability : non-portable (depends on SDL)
 
 -}
 
-{-# LANGUAGE Trustworthy            #-} -- Enables compilation of robot files with Safe Haskell.
-{-# LANGUAGE MultiParamTypeClasses  #-} -- Necessary for Pidable typeclass.
-{-# LANGUAGE FunctionalDependencies #-} -- Necessary for Pidable typeclass.
-{-# LANGUAGE TemplateHaskell        #-} -- Used to generate lenses for PidController.
-module Game.Robo.PidController where
+{-# LANGUAGE Trustworthy     #-} -- Enables compilation of robot files with Safe Haskell.
+{-# LANGUAGE TemplateHaskell #-} -- Used to generate lenses for PidController.
+module Game.Robo.PIDLensed where
 
 import Lens.Family2
 import Lens.Family2.TH
 
 import Game.Robo.Core.MathsTypes
 import Game.Robo.Maths
+
+import Game.Robo.Pidable
 
 data PidController a s =
      PidController { _pidGainP :: a
@@ -64,24 +64,3 @@ updatePid newError pid =
         iterm = if magnitude (pterm `pidSum` dterm) < (pid^.pidCutoffI)
                    then (pid^.pidTermI) `pidSum` (mulScalar (pid^.pidGainI) delta)
                    else pidNone
-
-class (Fractional a, Ord a) => Pidable a s | s -> a where
-  mulScalar :: a -> s -> s
-  pidDiff   :: s -> s -> s
-  pidSum    :: s -> s -> s
-  magnitude :: s -> a
-  pidNone   :: s
-
-instance Pidable Double Double where
-  mulScalar = (*)
-  pidDiff   = (-)
-  pidSum    = (+)
-  magnitude = abs
-  pidNone   = 0
-
-instance Pidable Double Vec where
-  mulScalar = (*|)
-  pidDiff   = (-)
-  pidSum    = (+)
-  magnitude = vecMag
-  pidNone   = 0

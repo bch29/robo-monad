@@ -68,6 +68,9 @@ instance Fractional Vec where
 
 -- Functions to multiply vectors by scalars are very handy.
 
+infixr 7 *|
+infixl 7 |*
+
 -- | Multiply a vector by a scalar on the left.
 (*|) :: Scalar -> Vec -> Vec
 a *| Vec x y = Vec (a * x) (a * y)

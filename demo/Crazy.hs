@@ -15,7 +15,7 @@ module Crazy (crazy) where
 
 import Game.Robo
 import Game.Robo.Maths
-import Game.Robo.PidController
+import Game.Robo.PIDLensed
 
 import Control.Monad
 import Control.Applicative
