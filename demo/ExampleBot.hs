@@ -10,7 +10,6 @@ Portability : non-portable (depends on SDL)
 -}
 
 {-# LANGUAGE TemplateHaskell #-}
-
 module ExampleBot (examplebot) where
 
 -- Import of Game.Robo required, Maths and PidController
@@ -64,6 +63,11 @@ myOnBulletHit :: ExampleBot ()
 myOnBulletHit = do
   return ()
 
+-- | Runs when this robot collides with the arena walls.
+myOnCollideWall :: WallCollisionData -> ExampleBot ()
+myOnCollideWall w = do
+  return ()
+
 -- | This is the actual robot specification to be passed to
 -- @runWorld@.
 examplebot :: BotSpec
@@ -75,4 +79,5 @@ examplebot = BotSpec
   , onScan          = myScan
   , onHitByBullet   = myOnHitByBullet
   , onBulletHit     = myOnBulletHit
+  , onCollideWall   = myOnCollideWall
   }
