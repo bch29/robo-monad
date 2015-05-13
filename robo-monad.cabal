@@ -36,7 +36,7 @@ library
     Game.Robo.Extra
 
   other-modules:
-    Game.Robo.Core.MathsTypes,
+    Game.Robo.Core.Types.Maths,
     Game.Robo.Core.Types,
     Game.Robo.Core.Lenses,
     Game.Robo.Core.Rules,

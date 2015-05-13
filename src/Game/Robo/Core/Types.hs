@@ -35,7 +35,7 @@ module Game.Robo.Core.Types
 
   , BotUpdate (..), BotResponse (..)
 
-  , module Game.Robo.Core.MathsTypes
+  , module Game.Robo.Core.Types.Maths
   ) where
 
 import Control.Monad.State.Strict
@@ -48,7 +48,7 @@ import Lens.Family2.TH
 
 import Control.DeepSeq
 
-import Game.Robo.Core.MathsTypes
+import Game.Robo.Core.Types.Maths
 
 ---------------------------------
 --  Rules

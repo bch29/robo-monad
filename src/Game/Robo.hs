@@ -48,7 +48,7 @@ module Game.Robo
   -- try to put all the lens stuff, etc, at the end
   -- so it doesn't get in the way of documentation
   -- * Basic maths stuff and lenses
-  , module Game.Robo.Core.MathsTypes
+  , module Game.Robo.Core.Types.Maths
 
   -- * Rule lenses
   , module Game.Robo.Core.Rules
@@ -79,7 +79,7 @@ import Game.Robo.Maths
 import Game.Robo.Core
 import Game.Robo.Core.World
 import Game.Robo.Core.Rules
-import Game.Robo.Core.MathsTypes
+import Game.Robo.Core.Types.Maths
 
 ---------------------------------
 --  ACCESSORS

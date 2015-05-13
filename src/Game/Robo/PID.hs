@@ -18,7 +18,6 @@ module Game.Robo.PID
   , module Game.Robo.PID.Class
   ) where
 
-import Game.Robo.Core.MathsTypes
 import Game.Robo.Maths
 
 import Game.Robo.PID.Class

@@ -1,5 +1,5 @@
 {-|
-Module      : Game.Robo.Core.MathsTypes
+Module      : Game.Robo.Core.Types.Maths
 Description : Mathematical types and basic operations for 2D geometry.
 Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
@@ -8,13 +8,13 @@ Stability   : experimental
 Portability : non-portable (depends on SDL)
 
 Separated from Game.Robo.Core.Types so that the whole module
-can be re-exported to the user. We make lenses here because
+can be re-exported to the user. We make lenses here
 for the same reason.
 -}
 
 {-# LANGUAGE TemplateHaskell #-}
 
-module Game.Robo.Core.MathsTypes where
+module Game.Robo.Core.Types.Maths where
 
 import Lens.Family2.TH
 import Control.DeepSeq

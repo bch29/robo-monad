@@ -41,7 +41,7 @@ module Game.Robo.Maths
   ) where
 
 import Lens.Family2
-import Game.Robo.Core.MathsTypes
+import Game.Robo.Core.Types.Maths
 
 -----------------------------------
 -- VECTORS

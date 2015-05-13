@@ -22,7 +22,6 @@ module Game.Robo.PID.Lensed
 import Lens.Family2
 import Lens.Family2.TH
 
-import Game.Robo.Core.MathsTypes
 import Game.Robo.Maths
 
 import Game.Robo.PID.Class

@@ -14,7 +14,7 @@ Portability : non-portable (depends on SDL)
 {-# LANGUAGE FunctionalDependencies #-} -- Necessary for Pidable typeclass.
 module Game.Robo.PID.Class where
 
-import Game.Robo.Core.MathsTypes
+import Game.Robo.Core.Types.Maths
 import Game.Robo.Maths
 
 class (Fractional a, Ord a) => Pidable a s | s -> a where
