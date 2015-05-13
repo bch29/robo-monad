@@ -1,5 +1,5 @@
 {-|
-Module      : Game.Robo.PIDLensed
+Module      : Game.Robo.PID.Lensed
 Description : Typeclass-based PID controller implementation for use with robots, using lenses.
 Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
@@ -11,7 +11,13 @@ Portability : non-portable (depends on SDL)
 
 {-# LANGUAGE Trustworthy     #-} -- Enables compilation of robot files with Safe Haskell.
 {-# LANGUAGE TemplateHaskell #-} -- Used to generate lenses for PidController.
-module Game.Robo.PIDLensed where
+module Game.Robo.PID.Lensed
+  ( PidController (..)
+  , pidGainP, pidGainI, pidGainD, pidCutoffI, pidTermI, pidError, pidOut
+  , makePid, makePidSimple
+  , updatePid
+  , module Game.Robo.PID.Class
+  ) where
 
 import Lens.Family2
 import Lens.Family2.TH
@@ -19,7 +25,7 @@ import Lens.Family2.TH
 import Game.Robo.Core.MathsTypes
 import Game.Robo.Maths
 
-import Game.Robo.Pidable
+import Game.Robo.PID.Class
 
 data PidController a s =
      PidController { _pidGainP :: a

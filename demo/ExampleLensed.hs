@@ -16,7 +16,7 @@ module ExampleLensed (examplebot) where
 -- provide handy utility functions.
 import Game.Robo
 import Game.Robo.Maths
-import Game.Robo.PIDLensed
+import Game.Robo.PID.Lensed
 
 -- | Provides a handy alias for this robot's Robo monad.
 type ExampleLensed = Robo ExampleLensedState

@@ -30,9 +30,9 @@ library
   exposed-modules:
     Game.Robo,
     Game.Robo.Maths,
-    Game.Robo.Pidable,
+    Game.Robo.PID.Class,
     Game.Robo.PID,
-    Game.Robo.PIDLensed,
+    Game.Robo.PID.Lensed,
     Game.Robo.Extra
 
   other-modules:

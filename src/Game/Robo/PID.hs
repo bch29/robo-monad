@@ -11,12 +11,17 @@ Portability : non-portable (depends on SDL)
 
 {-# LANGUAGE Trustworthy #-} -- Enables compilation of robot files with Safe Haskell.
 
-module Game.Robo.PID where
+module Game.Robo.PID
+  ( PidController (..)
+  , makePid, makePidSimple
+  , updatePid
+  , module Game.Robo.PID.Class
+  ) where
 
 import Game.Robo.Core.MathsTypes
 import Game.Robo.Maths
 
-import Game.Robo.Pidable
+import Game.Robo.PID.Class
 
 data PidController a s =
      PidController { pidGainP :: a

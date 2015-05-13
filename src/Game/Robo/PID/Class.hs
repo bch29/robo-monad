@@ -12,7 +12,7 @@ Portability : non-portable (depends on SDL)
 {-# LANGUAGE Trustworthy            #-} -- Enables compilation of robot files with Safe Haskell.
 {-# LANGUAGE MultiParamTypeClasses  #-} -- Necessary for Pidable typeclass.
 {-# LANGUAGE FunctionalDependencies #-} -- Necessary for Pidable typeclass.
-module Game.Robo.Pidable where
+module Game.Robo.PID.Class where
 
 import Game.Robo.Core.MathsTypes
 import Game.Robo.Maths

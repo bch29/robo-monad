@@ -18,7 +18,7 @@ import Control.Monad
 
 import Game.Robo
 import Game.Robo.Maths
-import Game.Robo.PIDLensed
+import Game.Robo.PID.Lensed
 import Game.Robo.Extra
 
 type WallHugger = Robo WallHuggerState
