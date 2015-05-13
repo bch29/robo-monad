@@ -10,5 +10,5 @@ Clone, then execute `cabal run` to see the demo. Uses the `SDL` and `SDL-gfx` pa
  - Add health, let robots be destroyed
  - Make multiple rounds, keeping track of victories
  - Add collisions between robots
- - Allow the simulation at different speeds
+ - Allow the simulation to run at different speeds
  - Add a facility to allow robots to save data to files
