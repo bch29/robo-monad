@@ -14,6 +14,8 @@ module Game.Robo.Render.World where
 import Lens.Family2
 import Lens.Family2.State
 
+import Control.Monad.Reader
+
 import Game.Robo.Core
 import Game.Robo.Render
 import Game.Robo.Render.Bot
@@ -36,3 +38,7 @@ drawWorld = do
 
     buls <- use wldBullets
     mapM_ drawBullet buls
+
+    Vec w h <- asks (view ruleArenaSize)
+
+    drawPoly (colourWord 0xFFFFFF) [Vec 0 0, Vec 0 h, Vec w h, Vec w 0]

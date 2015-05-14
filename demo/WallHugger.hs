@@ -65,10 +65,11 @@ adjustMotion = do
   hv       <- getHeadingVec
   dist     <- getWallDistR
   perpDist <- getWallDistDirR (vecPerpR hv)
+  backDist <- getWallDistDirR (-hv)
   let perpTp = if perpDist < 100 then 10 else if perpDist < 200 then -16 else 0
       normTp = if dist < 200 then 32 else 0
   setTurnPower (perpTp + normTp)
-  if dist < 100
+  if dist < 100 && dist < backDist
      then direction .= -1
      else direction .= 1
   setThrust =<< (*) 1000 <$> use direction
