@@ -28,8 +28,8 @@ import Data.Ord
 import Game.Robo.Core
 import Game.Robo.Maths
 
-initialBotState ::  Scalar -> BotID -> Vec -> BotState
-initialBotState mass bid pos =
+initialBotState ::  Scalar -> Scalar -> BotID -> Vec -> BotState
+initialBotState life mass bid pos =
   BotState { _botID        = bid
            , _botThrust    = 0
            , _botAngThrust = 0
@@ -48,6 +48,7 @@ initialBotState mass bid pos =
 
            , _botMass      = mass
            , _botEnergy    = 0
+           , _botLife      = life
            }
 
 -- | Returns the 'Rect' surrounding the robot (with its axis aligned with the
@@ -167,11 +168,9 @@ stepBotGun passed doTick = do
 
   -- firing
   firing <- use (botGun.gunFiring)
-  bullets <- if doTick && firing > 0
-                then fireBullet
-                else return []
-
-  return bullets
+  if doTick && firing > 0
+     then fireBullet
+     else return []
 
 -- | Deal with energy regeneration.
 stepBotEnergy :: Double -> Bot ()
@@ -237,12 +236,15 @@ botMain spec bid updateChan responseChan =
     BotSpec name initialState
       onInit' onTick' onScan'
       onHitByBullet' onBulletHit' onCollideWall' -> do
-        -- run the robot's initialisation method
-        (_, userState1) <- promoteContext $ runRobo onInit' initialState
+        -- run the robot's initialisation method, listening to the log so that
+        -- we can print it out
+        ((_, userState1), lg) <- listen . promoteContext $ runRobo onInit' initialState
         state' <- get
 
+        liftIO $ putStr (unlines lg)
+
         -- send the initialisation results back to the main thread
-        liftIO $ writeChan responseChan $ BotResponse
+        liftIO $ writeChan responseChan BotResponse
           { responseID = bid
           , responseState = state'
           , responseBullets = [] }
@@ -254,11 +256,15 @@ botMain spec bid updateChan responseChan =
 
               let wasAggressor col = col^.bcolAggressor == bid
                   wasVictim    col = col^.bcolVictim    == bid
+                  victimCollisions = filter wasVictim bulletCollisions
                   bulletHit = any wasAggressor bulletCollisions
-                  wasHit    = any wasVictim    bulletCollisions
+                  wasHit    = not (null victimCollisions)
+                  damageReceived = sum . map (view bcolPower) $ victimCollisions
 
               -- sync up our state to what the world thinks our state is
               put botState
+
+              when wasHit $ botLife -= damageReceived
 
               -- update the robot state
               (bullets, userState') <- promoteContext $ do
@@ -287,9 +293,9 @@ botMain spec bid updateChan responseChan =
 
               -- send our new state, and any bullets fired, back to the main thread
               botState' <- get
-              liftIO $ writeChan responseChan $ BotResponse
-                { responseID = bid
-                , responseState = botState'
+              liftIO $ writeChan responseChan BotResponse
+                { responseID      = bid
+                , responseState   = botState'
                 , responseBullets = bullets }
 
               -- loop forever (until the thread is terminated)

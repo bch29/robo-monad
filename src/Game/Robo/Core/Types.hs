@@ -73,6 +73,13 @@ data Rules = Rules
   -- | The rate at which energy recharges, per second.
   , _ruleEnergyRechargeRate :: Scalar
 
+  -- | The size of the life bar (when at full life)
+  , _ruleLifebarSize        :: Vec
+  -- | The position of the life bar relative to the centre of the associated robot.
+  , _ruleLifebarOffset      :: Vec
+  -- | The maximum (starting) life of robots.
+  , _ruleMaxLife            :: Scalar
+
   -- | The vector dimensions of the radars.
   , _ruleRadarSize          :: Vec
   -- | The maximum rotation speed of the radar.
@@ -182,6 +189,7 @@ data BotState = BotState
   , _botRadar     :: !RadarState -- The state of the robot's radar.
   , _botMass      :: !Scalar     -- The mass of the robot.
   , _botEnergy    :: !Scalar     -- The current energy the robot has available.
+  , _botLife      :: !Scalar     -- The amount of life left in the robot.
   }
 
 -- | Specifies a robot's behaviour.

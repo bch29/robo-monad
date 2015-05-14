@@ -47,37 +47,34 @@ module Game.Robo
   -- try to put all the lens stuff, etc, at the end
   -- so it doesn't get in the way of documentation
   -- * Basic maths stuff and lenses
-  , module Game.Robo.Core.Types.Maths
+  , module MTypes
 
   -- * Rule lenses
-  , module Game.Robo.Core.Rules
+  , module Rules
 
   -- * Misc
-  , module Control.Monad.State.Class
-  , module Control.Monad.Reader.Class
-
-  , module Lens.Family2
-  , module Lens.Family2.State
+  , module Misc
+  , module Lens
   )
     where
 
-import Lens.Family2
-import Lens.Family2.TH
-import Lens.Family2.State
+import Lens.Family2       as Lens
+import Lens.Family2.TH    as Lens
+import Lens.Family2.State as Lens
 
 import Control.Applicative
 import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.Random
 
-import Control.Monad.Reader.Class
-import Control.Monad.State.Class
+import Control.Monad.Reader.Class as Misc
+import Control.Monad.State.Class  as Misc
 
 import Game.Robo.Maths
 import Game.Robo.Core
 import Game.Robo.Core.World
-import Game.Robo.Core.Rules
-import Game.Robo.Core.Types.Maths
+import Game.Robo.Core.Rules       as Rules
+import Game.Robo.Core.Types.Maths as MTypes
 
 ---------------------------------
 --  ACCESSORS

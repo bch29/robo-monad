@@ -122,16 +122,16 @@ angNormRelative :: Angle -> Angle
 angNormRelative ang =
   case () of
     () | ang < -pi  -> angNormRelative (ang + 2 * pi)
-    () | ang >= pi   -> angNormRelative (ang - 2 * pi)
-    () | otherwise -> ang
+       | ang >= pi   -> angNormRelative (ang - 2 * pi)
+       | otherwise -> ang
 
 -- | Normalise an angle to the range [0, 2*pi)
 angNormAbsolute :: Angle -> Angle
 angNormAbsolute ang =
   case () of
     () | ang < 0   -> angNormAbsolute (ang + 2 * pi)
-    () | ang >= 2*pi -> angNormAbsolute (ang - 2 * pi)
-    () | otherwise -> ang
+       | ang >= 2*pi -> angNormAbsolute (ang - 2 * pi)
+       | otherwise -> ang
 
 -----------------------------------
 -- RECTS

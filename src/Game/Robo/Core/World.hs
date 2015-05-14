@@ -9,6 +9,9 @@ Portability : non-portable
 
 -}
 
+{-# LANGUAGE ExistentialQuantification  #-}
+{-# LANGUAGE FlexibleContexts  #-}
+
 module Game.Robo.Core.World (runWorld) where
 
 import qualified Graphics.UI.GLUT as GL
@@ -33,6 +36,7 @@ import Data.Array.IO
 
 import Data.List
 import Data.Maybe
+import Data.Either
 
 import Game.Robo.Core
 import Game.Robo.Core.Bot
@@ -74,21 +78,18 @@ handleBulletCollisions :: World [BulletCollision]
 handleBulletCollisions = do
     -- get the list of all bot IDs
     bids <- gets $ toListOf (wldBots.traverse.botID)
-    handler [] bids
-  where handler acc [] = return acc
-        -- step through the bot ids
-        handler acc (bid:bids) = do
-          -- get all the bullets
-          bullets <- use wldBullets
-          -- see if the current bot is colliding with any of the bullets
-          (hitBullets, otherBullets) <- applyBot bid $ partitionM testBulletHit bullets
-          -- remove the bullets that have collided
-          wldBullets .= otherBullets
-          -- indicate which bullets hit
-          let bulResult bul = BulletCollision (bul^.bulOwner) bid (bul^.bulPower)
-              res = map bulResult hitBullets
-          -- keep looping
-          handler (res ++ acc) bids
+    bullets <- use wldBullets
+    let bulletCheck bul = do
+          -- find the first bot that the bullet is colliding with
+          hitId <- botsFindM (not <$> testBulletHit bul)
+          -- if the bullet hit nothing, return it, otherwise return a collision
+          return $ if hitId == -1
+            then Left bul
+            else Right $ BulletCollision (bul^.bulOwner) hitId (bul^.bulPower)
+
+    (newBullets, collisions) <- partitionEithers <$> mapM bulletCheck bullets
+    wldBullets .= newBullets
+    return collisions
 
 -- | Steps the world (minus the bots) forward a tick, returns a list of
 -- bullet collisions.
@@ -106,10 +107,11 @@ generateSpawnPositions count margin size =
 -- blocking until every robot has responded.
 collectResponses :: Chan BotResponse -> Int -> IO ([BotState], [Bullet])
 collectResponses chan numBots = do
-    responses <- newArray (1, numBots) Nothing :: IO (IOArray BotID (Maybe BotState))
+    responses <- newArray (1, numBots) Nothing
+      :: IO (IOArray BotID (Maybe BotState))
     bullets   <- collect numBots [] responses
     results   <- getElems responses
-    return $ (catMaybes results, bullets)
+    return (catMaybes results, bullets)
   where
     collect 0 bullets _ = return bullets
     collect n bullets responses = do
@@ -125,16 +127,17 @@ updateWorldWithResponses chan numBots = do
   wldBullets %= (bullets ++)
 
 -- | Gets the current time in milliseconds.
--- NB getTicks is from SDL and gives the time in milliseconds, unrelated to Robo ticks
+-- NB: getTicks is from SDL and gives the time in milliseconds, unrelated to
+-- Robo ticks
 getTime :: IO Int
 getTime = fromIntegral <$> getTicks
 
 -- | The World's main loop.
 mainStep :: RenderData -> [Chan BotUpdate] -> Chan BotResponse -> IOWorld Bool
 mainStep render updateChan responseChan = do
-  -- Yield the CPU a little
+  -- get the values we need
   time      <- use wldTime
-  time'     <- liftIO $ getTime
+  time'     <- liftIO getTime
   stepIval  <- asks (view ruleStepInterval)
 
   -- add to the time since last step
@@ -143,16 +146,20 @@ mainStep render updateChan responseChan = do
   -- update the stored time
   wldTime .= time'
 
-  -- only continue if enough time has passed since the last step
+  -- Only continue if enough time has passed since the last step.
+  -- It would be nice to allow this loop to happen as fast as possible
+  -- to make the animation smoother, but we care about consistency
+  -- (especially when turning up the game speed) more than we care
+  -- about animations smoothness.
   sinceStep <- use wldSinceStep
   when (sinceStep >= stepIval) $ do
     -- subtract the step interval
     wldSinceStep -= stepIval
 
+    -- work out whether we need to do a tick now
     wldSinceTick += 1
     sinceTick <- use wldSinceTick
     tickSteps <- asks (view ruleTickSteps)
-    -- work out whether we need to do a tick now
     doTick <- if sinceTick >= tickSteps
                  then do wldSinceTick -= tickSteps
                          return True
@@ -160,9 +167,11 @@ mainStep render updateChan responseChan = do
 
     -- the time in seconds since the last step
     let passed = 1e-3 * fromIntegral stepIval
+
     -- update the world, getting back bullet collisions
     bulletCollisions <- promoteContext (stepWorld passed)
-    let wasBotInvolved bid col = col^.bcolAggressor == bid || col^.bcolVictim == bid
+    let wasBotInvolved bid col = col^.bcolAggressor == bid
+                              || col^.bcolVictim    == bid
 
     -- tell the bots to update themselves
     worldState <- get
@@ -192,15 +201,16 @@ worldMain render specs = do
   -- initialise the bot states
   let numBots = length specs
   mass        <- asks (view ruleMass)
+  life        <- asks (view ruleMaxLife)
   spawnMargin <- asks (view ruleSpawnMargin)
   arenaSize   <- asks (view ruleArenaSize)
   positions   <- generateSpawnPositions numBots spawnMargin arenaSize
-  let bots = zipWith (initialBotState mass) [1..] positions
+  let bots = zipWith (initialBotState life mass) [1..] positions
   wldBots .= bots
 
   -- initialise the channels
   updateChans  <- liftIO $ replicateM numBots newChan
-  responseChan <- liftIO $ newChan
+  responseChan <- liftIO   newChan
 
   -- start the bot threads, each with their own update channel
   rules <- ask

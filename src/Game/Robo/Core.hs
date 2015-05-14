@@ -14,6 +14,9 @@ use all of those.
 
 module Game.Robo.Core
   ( applyBot
+  , applyBots
+  , applyAllBots
+  , botsFindM
   , runRobo
   , runContext
   , evalContext
@@ -23,13 +26,12 @@ module Game.Robo.Core
   , forceContext
   , whileContext
   , iterateContext
-  , module Game.Robo.Core.Types
-  , module Game.Robo.Core.Lenses
-  , module Game.Robo.Core.Rules
+  , module X
   ) where
 
 import Graphics.UI.GLUT hiding (get)
 import Data.IORef
+import Data.Array
 
 import Lens.Family2.State
 
@@ -41,9 +43,9 @@ import Control.Monad.Writer.Strict
 import Control.Monad.State.Strict
 import Control.Monad.Random
 
-import Game.Robo.Core.Types
-import Game.Robo.Core.Rules
-import Game.Robo.Core.Lenses
+import Game.Robo.Core.Types as X
+import Game.Robo.Core.Rules as X
+import Game.Robo.Core.Lenses as X
 import Game.Robo.Render
 
 -- | Evaluate a Bot monadic action in the context of its world.
@@ -54,6 +56,45 @@ applyBot bid bot = do
   (result, newState) <- lift $ runStateT bot targetState
   wldBots .= prevStates ++ newState : postStates
   return result
+
+-- | Evaluate many Bot monadic actions in the context of their world.
+-- Much more efficient than running applyBot for every Bot.
+applyBots :: Monad m => [(BotID, ContextT BotState m a)] -> ContextT WorldState m [a]
+applyBots bots = do
+  botStates <- use wldBots
+  let initialArr = listArray (1, length botStates) botStates
+      mkNewState (bid, action) = do
+        (res, st) <- lift $ runStateT action (initialArr ! bid)
+        return (res, (bid, st))
+  newStates <- mapM mkNewState bots
+  let (res, updates) = unzip newStates
+      finalArr = initialArr // updates
+  wldBots .= elems finalArr
+  return res
+
+-- | Evaluate each given Bot action for each robot in the world in turn.
+applyAllBots :: Monad m => [ContextT BotState m a] -> ContextT WorldState m [a]
+applyAllBots bots = do
+  botStates <- use wldBots
+  let runfun action st = lift $ runStateT action st
+  (res, newStates) <- unzip <$> zipWithM runfun bots botStates
+  wldBots .= newStates
+  return res
+
+-- | Return the first bot ID that satisfies a monadic predicate by running it
+-- for each bot in turn but stopping when it returns True.
+botsFindM :: Monad m => ContextT BotState m Bool -> ContextT WorldState m BotID
+botsFindM action = do
+  botStates <- use wldBots
+  let doWhile bid sts' (st:sts) = do
+        (cont, st') <- lift $ runStateT action st
+        if cont
+           then doWhile (bid+1) (st':sts') sts
+           else return (bid, reverse (st':sts') ++ sts)
+      doWhile _ sts' [] = return (-1, reverse sts')
+  (res, newStates) <- doWhile 1 [] botStates
+  wldBots .= newStates
+  return res
 
 -- | Evaluate a Robo down to its underlying Bot monad.
 runRobo :: Robo s a -> s -> Bot (a, s)
@@ -151,10 +192,8 @@ whileContext ctx = do
         (cont, st', lg) <- runContext ctx rules st
         putStr (unlines lg)
         evaluate (rnf st')
-        if cont then do
+        when cont $
           writeIORef ref st'
-          addTimerCallback 1 loop
-        else return ()
 
-  liftIO $ addTimerCallback 1 loop
+  liftIO (idleCallback $= Just loop)
 

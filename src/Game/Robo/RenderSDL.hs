@@ -135,7 +135,7 @@ doDrawObject (RenderData surface) obj =
 
 -- | Draw the background using SDL.
 doDrawBackground :: RenderData -> Colour -> IO ()
-doDrawBackground (RenderData surface) (Pixel pix) = do
+doDrawBackground (RenderData surface) (Pixel pix) =
   -- We shift the pix right by 8 because fillRect doesn't take transparency into account.
   void $ fillRect surface Nothing (Pixel (pix `shiftR` 8))
 

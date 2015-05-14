@@ -9,12 +9,13 @@ Portability : non-portable
 
 -}
 
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module Game.Robo.Render
   ( RenderData
   , Colour
   , Draw
-  , DrawObject
-  , MonadDraw (..)
+  , MonadDraw
   , startRender
   , getTicks
   , colour, colourWord
@@ -51,17 +52,10 @@ data DrawObject = Poly Colour [Vec]
 
 -- | The monad that you draw in.
 newtype Draw a = Draw { unwrapDraw :: State [DrawObject] a }
+  deriving (Functor, Applicative, Monad)
 
-instance Functor Draw where
-  fmap f = Draw . fmap f . unwrapDraw
-
-instance Applicative Draw where
-  pure = Draw . return
-  f <*> x = Draw (unwrapDraw f <*> unwrapDraw x)
-
-instance Monad Draw where
-  return = pure
-  x >>= f = Draw (unwrapDraw x >>= (unwrapDraw . f))
+class Monad m => MonadDraw m where
+  drawObject :: DrawObject -> m ()
 
 instance MonadDraw m => MonadDraw (StateT s m) where
   drawObject = lift . drawObject
@@ -74,9 +68,6 @@ instance (MonadDraw m, Monoid w) => MonadDraw (WriterT w m) where
 
 instance (MonadDraw m, RandomGen g) => MonadDraw (RandT g m) where
   drawObject = lift . drawObject
-
-class Monad m => MonadDraw m where
-  drawObject :: DrawObject -> m ()
 
 instance MonadDraw Draw where
   drawObject = Draw . modify . (:)
@@ -128,9 +119,11 @@ drawCircle col cen rad = drawObject (Circle col cen rad)
 --  INTERNALS
 -------------------------------------
 
+-- | Convert a 2D vector to an OpenGL 3D vertex.
 vecToVert :: Vec -> GL.Vertex3 GLfloat
 vecToVert (Vec x y) = GL.Vertex3 (realToFrac x) (realToFrac y) 0
 
+-- | Do the actual drawing of a circle (approximated by a 20-sided polygon).
 doCircle :: Colour -> Vec -> Scalar -> IO ()
 doCircle col cen rad = GL.renderPrimitive GL.LineLoop $ do
   let atAng ang = GL.vertex . vecToVert $ cen + Vec (rad * cos ang) (rad * sin ang)
@@ -155,7 +148,8 @@ doDrawObject obj =
         Line col v1 v2 -> color col >> ln col v1 v2
         Circle col cen rad -> doCircle col cen rad
 
-display :: IORef (Vector3 GLfloat, GLfloat, GLfloat) -> RenderData -> IO ()
+-- | The GLUT display callback function.
+display :: IORef (Vector3 GLfloat, GLfloat, GLfloat) -> RenderData -> DisplayCallback
 display scaleVar (RenderData drawVar) = do
   clearColor $= Color4 0.1 0.05 0.05 (1 :: GLclampf)
   clear [ ColorBuffer ]
@@ -167,6 +161,7 @@ display scaleVar (RenderData drawVar) = do
   mapM_ doDrawObject objects
   flush
 
+-- | The GLUT reshape callback function.
 reshape :: Vec -> IORef (Vector3 GLfloat, GLfloat, GLfloat) -> ReshapeCallback
 reshape (Vec tw th) scaleVar (Size width height) = do
   let offset = Vector3 (-realToFrac tw / 2) (-realToFrac th / 2) (0 :: GLfloat)
@@ -191,5 +186,6 @@ startRender windowName width height = do
   windowSize $= Size (fromIntegral width) (fromIntegral height)
   return render
 
+-- | Get the number of milliseconds that have passed since initialisation.
 getTicks :: IO Int
 getTicks = GL.get elapsedTime

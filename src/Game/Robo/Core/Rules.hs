@@ -37,6 +37,11 @@ defaultRules = Rules
   , _ruleMaxEnergy          = 20
   , _ruleEnergyRechargeRate = 5
 
+  -- Life bar
+  , _ruleLifebarSize        = Vec 60 4
+  , _ruleLifebarOffset      = Vec 0 (-50)
+  , _ruleMaxLife            = 30
+
   -- Radar
   , _ruleRadarSize          = Vec 10 30
   , _ruleMaxRadSpeed        = 16

@@ -22,12 +22,12 @@ import Game.Robo.Extra
 type WallHugger = Robo WallHuggerState
 
 data WallHuggerState = WallHuggerState
-     { _gunPid   :: PidController Double Double
-     , _enemyPos :: Maybe Vec
-     , _direction :: Scalar
-     }
+  { _gunPid   :: PID Double Double
+  , _enemyPos :: Maybe Vec
+  , _direction :: Scalar
+  }
 
-gunPid :: Lens' WallHuggerState (PidController Scalar Scalar)
+gunPid :: Lens' WallHuggerState (PID Scalar Scalar)
 gunPid f s = fmap (\x -> s { _gunPid = x }) (f (_gunPid s))
 
 direction :: Lens' WallHuggerState Scalar

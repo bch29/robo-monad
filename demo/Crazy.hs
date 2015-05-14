@@ -21,12 +21,12 @@ import Control.Applicative
 type Crazy = Robo CrazyState
 
 data CrazyState = CrazyState
-  { _turningPid  :: PidController Scalar Scalar
+  { _turningPid  :: PID Scalar Scalar
   , _direction   :: Scalar
   , _targetAngle :: Angle
   }
 
-turningPid :: Lens' CrazyState (PidController Scalar Scalar)
+turningPid :: Lens' CrazyState (PID Scalar Scalar)
 turningPid f s = fmap (\x -> s { _turningPid = x }) (f (_turningPid s))
 
 direction :: Lens' CrazyState Scalar
