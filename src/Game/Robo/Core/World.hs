@@ -5,13 +5,13 @@ Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
-Portability : non-portable (depends on SDL)
+Portability : non-portable
 
 -}
 
 module Game.Robo.Core.World (runWorld) where
 
-import Graphics.UI.SDL as SDL hiding (Rect)
+import qualified Graphics.UI.GLUT as GL
 
 import Lens.Family2
 import Lens.Family2.State
@@ -36,7 +36,8 @@ import Data.Maybe
 
 import Game.Robo.Core
 import Game.Robo.Core.Bot
-import Game.Robo.Draw.DrawWorld
+import Game.Robo.Render
+import Game.Robo.Render.World
 
 -- | Move a bullet along.
 updateBullet :: Double -> Bullet -> Bullet
@@ -129,10 +130,9 @@ getTime :: IO Int
 getTime = fromIntegral <$> getTicks
 
 -- | The World's main loop.
-mainStep :: Surface -> [Chan BotUpdate] -> Chan BotResponse -> IOWorld Bool
-mainStep surface updateChan responseChan = do
+mainStep :: RenderData -> [Chan BotUpdate] -> Chan BotResponse -> IOWorld Bool
+mainStep render updateChan responseChan = do
   -- Yield the CPU a little
-  liftIO $ delay 0
   time      <- use wldTime
   time'     <- liftIO $ getTime
   stepIval  <- asks (view ruleStepInterval)
@@ -145,7 +145,6 @@ mainStep surface updateChan responseChan = do
 
   -- only continue if enough time has passed since the last step
   sinceStep <- use wldSinceStep
-  -- liftIO $ print sinceStep
   when (sinceStep >= stepIval) $ do
     -- subtract the step interval
     wldSinceStep -= stepIval
@@ -184,14 +183,12 @@ mainStep surface updateChan responseChan = do
     updateWorldWithResponses responseChan numBots
 
     -- draw the world
-    drawWorld surface
-    liftIO (SDL.flip surface)
-  ev <- liftIO $ pollEvent
-  return $ ev /= Quit
+    runDrawing drawWorld render
+  return True
 
 -- | Where the monads kick in.
-worldMain :: Surface -> [BotSpec] -> IOWorld ()
-worldMain surface specs = do
+worldMain :: RenderData -> [BotSpec] -> IOWorld ()
+worldMain render specs = do
   -- initialise the bot states
   let numBots = length specs
   mass        <- asks (view ruleMass)
@@ -219,7 +216,7 @@ worldMain surface specs = do
   updateWorldWithResponses responseChan numBots
 
   -- start the main loop
-  whileContext $ mainStep surface updateChans responseChan
+  whileContext $ mainStep render updateChans responseChan
 
 -- | Run a battle with the given rules and robots.
 --
@@ -229,11 +226,11 @@ worldMain surface specs = do
 --
 -- > main = runWorld defaultRules [mybot1, mybot2, mybot3]
 runWorld :: Rules -> [BotSpec] -> IO ()
-runWorld rules specs = withInit [InitEverything] $ do
+runWorld rules specs = do
   -- make the window
   let screenSize = rules^.ruleArenaSize
       (width, height) = (round (screenSize^.vX), round (screenSize^.vY))
-  screen <- setVideoMode width height 32 [SWSurface]
+  render <- startRender "RoboMonad" width height
 
   -- initialise the world state
   let worldState = WorldState
@@ -246,4 +243,5 @@ runWorld rules specs = withInit [InitEverything] $ do
         }
 
   -- jump into the World monad
-  evalContext (worldMain screen specs) rules worldState
+  evalContext (worldMain render specs) rules worldState
+  GL.mainLoop

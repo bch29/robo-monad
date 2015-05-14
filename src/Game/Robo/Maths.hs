@@ -5,7 +5,7 @@ Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
-Portability : non-portable (depends on SDL)
+Portability : non-portable
 
 A set of mathematical functions that are both useful for programming robots and used
 within the RoboMonad engine itself.

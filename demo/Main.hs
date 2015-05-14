@@ -5,7 +5,7 @@ Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
-Portability : non-portable (depends on SDL)
+Portability : non-portable
 
 -}
 
@@ -23,4 +23,4 @@ myRules = defaultRules
 
 -- Start the world with our ruleset and two robots.
 main :: IO ()
-main = runWorld myRules [crazy, wallhugger]
+main = runWorld myRules [wallhugger, crazy]

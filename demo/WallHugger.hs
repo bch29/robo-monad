@@ -5,11 +5,9 @@ Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
-Portability : non-portable (depends on SDL)
+Portability : non-portable
 
 -}
-
-{-# LANGUAGE TemplateHaskell #-}
 
 module WallHugger (wallhugger) where
 
@@ -29,7 +27,14 @@ data WallHuggerState = WallHuggerState
      , _direction :: Scalar
      }
 
-makeLenses ''WallHuggerState
+gunPid :: Lens' WallHuggerState (PidController Scalar Scalar)
+gunPid f s = fmap (\x -> s { _gunPid = x }) (f (_gunPid s))
+
+direction :: Lens' WallHuggerState Scalar
+direction f s = fmap (\x -> s { _direction = x }) (f (_direction s))
+
+enemyPos :: Lens' WallHuggerState (Maybe Vec)
+enemyPos f s = fmap (\x -> s { _enemyPos = x }) (f (_enemyPos s))
 
 emptyState :: WallHuggerState
 emptyState = WallHuggerState

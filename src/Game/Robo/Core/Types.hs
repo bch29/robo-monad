@@ -5,12 +5,11 @@ Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
-Portability : non-portable (depends on SDL)
+Portability : non-portable
 
 These are defined in their own file to avoid module import cycles.
 -}
 
-{-# LANGUAGE TemplateHaskell            #-} -- For lens generation
 {-# LANGUAGE ExistentialQuantification  #-} -- Note [ExistentialQuantification]
 {-# LANGUAGE GeneralizedNewtypeDeriving #-} -- For easy newtype wrapping
 {-# LANGUAGE MultiParamTypeClasses      #-} -- For MonadState instance of @Robo s@
@@ -20,9 +19,9 @@ module Game.Robo.Core.Types
   ( Rules (..)
 
   , Robo  (..), BotWrapper (..)
-  , Bot, IOBot
-  , World, IOWorld
-  , PureContext, ContextT
+  , Bot, IOBot, DrawBot
+  , World, IOWorld, DrawWorld
+  , PureContext, DrawContext, ContextT
 
   , WorldState (..)
 
@@ -44,10 +43,10 @@ import Control.Monad.Writer.Strict
 import Control.Monad.Random
 
 import Lens.Family2
-import Lens.Family2.TH
 
 import Control.DeepSeq
 
+import Game.Robo.Render
 import Game.Robo.Core.Types.Maths
 
 ---------------------------------
@@ -124,14 +123,23 @@ type Bot = PureContext BotState
 -- | A bot that can do I/O.
 type IOBot = ContextT BotState IO
 
+-- | A bot that can draw.
+type DrawBot = DrawContext BotState
+
 -- | The internal world monad.
 type World = PureContext WorldState
 
 -- | A world that can do I/O.
 type IOWorld = ContextT WorldState IO
 
+-- | A world that can draw.
+type DrawWorld = DrawContext WorldState
+
 -- | A pure context, based on Rand.
 type PureContext s = ContextT s (Rand StdGen)
+
+-- | A context that can draw.
+type DrawContext s = ContextT s (RandT StdGen Draw)
 
 -- | A lot of computations take place within this context, with a Writer
 -- for logging, a Reader to keep track of the battle rules and a Rand for

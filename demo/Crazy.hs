@@ -5,11 +5,9 @@ Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
-Portability : non-portable (depends on SDL)
+Portability : non-portable
 
 -}
-
-{-# LANGUAGE TemplateHaskell #-}
 
 module Crazy (crazy) where
 
@@ -28,7 +26,14 @@ data CrazyState = CrazyState
   , _targetAngle :: Angle
   }
 
-makeLenses ''CrazyState
+turningPid :: Lens' CrazyState (PidController Scalar Scalar)
+turningPid f s = fmap (\x -> s { _turningPid = x }) (f (_turningPid s))
+
+direction :: Lens' CrazyState Scalar
+direction f s = fmap (\x -> s { _direction = x }) (f (_direction s))
+
+targetAngle :: Lens' CrazyState Angle
+targetAngle f s = fmap (\x -> s { _targetAngle = x }) (f (_targetAngle s))
 
 myInitialState :: CrazyState
 myInitialState = CrazyState

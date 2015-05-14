@@ -16,10 +16,11 @@ cabal-version:       >=1.10
 
 executable robo-demo
   main-is:             Main.hs
-  other-modules:       WallHugger, ExampleBot, ExampleLensed, Crazy
-  build-depends:       base >=4.6 && <4.7, robo-monad
+  other-modules:       WallHugger, ExampleBot, Crazy
+  build-depends:       base >=4.6 && <5, robo-monad
   hs-source-dirs:      demo
   default-language:    Haskell2010
+  other-extensions:    TemplateHaskell, GeneralizedNewtypeDeriving
   ghc-options:
     -O2
     -threaded
@@ -30,10 +31,10 @@ library
   exposed-modules:
     Game.Robo,
     Game.Robo.Maths,
-    Game.Robo.PID.Class,
+    Game.Robo.Extra,
     Game.Robo.PID,
-    Game.Robo.PID.Lensed,
-    Game.Robo.Extra
+    Game.Robo.PID.Class,
+    Game.Robo.PID.Lensed
 
   other-modules:
     Game.Robo.Core.Types.Maths,
@@ -43,16 +44,18 @@ library
     Game.Robo.Core,
     Game.Robo.Core.World,
     Game.Robo.Core.Bot,
-    Game.Robo.Draw.DrawWorld,
-    Game.Robo.Draw.DrawBot
+    Game.Robo.Render.World,
+    Game.Robo.Render.Bot,
+    Game.Robo.Render
   build-depends:
-    base >=4.6 && <4.8,
+    base >=4.6 && <5,
     mtl, MonadRandom, random,
     array, deepseq,
     lens-family, lens-family-th,
-    SDL, SDL-gfx
+    GLUT
   hs-source-dirs:      src
   default-language:    Haskell2010
+  other-extensions:    TemplateHaskell, GeneralizedNewtypeDeriving
   ghc-options:
     -O2
     -threaded

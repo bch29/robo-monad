@@ -5,7 +5,7 @@ Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
 Maintainer  : bradleyhardy@live.com
 Stability   : experimental
-Portability : non-portable (depends on SDL)
+Portability : non-portable
 
 This module makes the Rule lenses so that all rule lenses
 can be easily exported in Game.Robo just by exporting the
