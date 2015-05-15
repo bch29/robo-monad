@@ -9,46 +9,47 @@ Portability : non-portable
 
 -}
 
-{-# LANGUAGE ExistentialQuantification  #-}
-{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE UnicodeSyntax             #-}
 
 module Game.Robo.Core.World (runWorld) where
 
-import qualified Graphics.UI.GLUT as GL
+import qualified Graphics.UI.GLUT       as GL
 
-import Lens.Family2
-import Lens.Family2.State
+import           Lens.Family2
+import           Lens.Family2.State
 
-import Control.Concurrent
+import           Control.Concurrent
 
-import Control.Applicative
-import Data.Traversable (traverse)
-import Control.Monad
-import Control.Monad.Writer
-import Control.Monad.Reader
-import Control.Monad.State
-import Control.Monad.Random
+import           Control.Applicative
+import           Control.Monad
+import           Control.Monad.Random
+import           Control.Monad.Reader
+import           Control.Monad.State
+import           Control.Monad.Writer
+import           Data.Traversable       (traverse)
 
-import Control.DeepSeq
+import           Control.DeepSeq
 
-import Data.Array.MArray
-import Data.Array.IO
+import           Data.Array.IO
+import           Data.Array.MArray
 
-import Data.List
-import Data.Maybe
-import Data.Either
+import           Data.Either
+import           Data.List
+import           Data.Maybe
 
-import Game.Robo.Core
-import Game.Robo.Core.Bot
-import Game.Robo.Render
-import Game.Robo.Render.World
+import           Game.Robo.Core
+import           Game.Robo.Core.Bot
+import           Game.Robo.Render
+import           Game.Robo.Render.World
 
 -- | Move a bullet along.
-updateBullet :: Double -> Bullet -> Bullet
+updateBullet ∷ Double → Bullet → Bullet
 updateBullet passed bul = bul & bulPos +~ (bul^.bulVel) |* passed
 
 -- | Check if a bullet is within the bounds of the arena.
-isBulletInArena :: Vec -> Bullet -> Bool
+isBulletInArena ∷ Vec → Bullet → Bool
 isBulletInArena size bul =
     bx >= minX && bx <= maxX && by >= minY && by <= maxY
   where
@@ -57,14 +58,15 @@ isBulletInArena size bul =
 
 -- | Moves all the bullets along, and removes them if they are outside
 -- the arena bounds.
-stepBullets :: Double -> World ()
+stepBullets ∷ Double → World ()
 stepBullets passed = do
   bullets <- use wldBullets
-  let bullets' = map (updateBullet passed) bullets
   size <- asks (view ruleArenaSize)
-  wldBullets .= filter (isBulletInArena size) bullets'
+  let bullets' = filter (isBulletInArena size) . map (updateBullet passed) $ bullets
+  wldBullets .= bullets'
 
-partitionM :: Monad m => (a -> m Bool) -> [a] -> m ([a], [a])
+-- | Splits a list of values into those satisfying a monadic predicate, and those not.
+partitionM ∷ Monad m ⇒ (a → m Bool) → [a] → m ([a], [a])
 partitionM _ [] = return ([], [])
 partitionM f (x:xs) = do
   res <- f x
@@ -74,18 +76,18 @@ partitionM f (x:xs) = do
 
 -- | Handles all bullet collisions, removing colliding bullets and returning
 -- collision data.
-handleBulletCollisions :: World [BulletCollision]
+handleBulletCollisions ∷ World [BulletCollision]
 handleBulletCollisions = do
     -- get the list of all bot IDs
     bids <- gets $ toListOf (wldBots.traverse.botID)
     bullets <- use wldBullets
     let bulletCheck bul = do
           -- find the first bot that the bullet is colliding with
-          hitId <- botsFindM (not <$> testBulletHit bul)
+          mhitId <- botsFindM (not <$> testBulletHit bul)
           -- if the bullet hit nothing, return it, otherwise return a collision
-          return $ if hitId == -1
-            then Left bul
-            else Right $ BulletCollision (bul^.bulOwner) hitId (bul^.bulPower)
+          return $ case mhitId of
+                     Nothing -> Left bul
+                     Just hitId -> Right $ BulletCollision (bul^.bulOwner) hitId (bul^.bulPower)
 
     (newBullets, collisions) <- partitionEithers <$> mapM bulletCheck bullets
     wldBullets .= newBullets
@@ -93,68 +95,78 @@ handleBulletCollisions = do
 
 -- | Steps the world (minus the bots) forward a tick, returns a list of
 -- bullet collisions.
-stepWorld :: Double -> World [BulletCollision]
+stepWorld ∷ Double → World [BulletCollision]
 stepWorld passed = do
   stepBullets passed
   handleBulletCollisions
 
 -- | Gets random positions within the given size for bots to start in.
-generateSpawnPositions :: MonadRandom m => Int -> Scalar -> Vec -> m [Vec]
+generateSpawnPositions ∷ MonadRandom m ⇒ Int → Scalar → Vec → m [Vec]
 generateSpawnPositions count margin size =
   replicateM count (getRandomR (1 |* margin, size - 1 |* (2*margin)))
 
 -- | Collect the responses to a request from all the robots,
 -- blocking until every robot has responded.
-collectResponses :: Chan BotResponse -> Int -> IO ([BotState], [Bullet])
+collectResponses ∷ Chan BotResponse → Int → IO [BotResponse]
 collectResponses chan numBots = do
     responses <- newArray (1, numBots) Nothing
-      :: IO (IOArray BotID (Maybe BotState))
-    bullets   <- collect numBots [] responses
-    results   <- getElems responses
-    return (catMaybes results, bullets)
+      :: IO (IOArray BotID (Maybe BotResponse))
+    collect numBots responses
+    results <- getElems responses
+    return $ catMaybes results
   where
-    collect 0 bullets _ = return bullets
-    collect n bullets responses = do
-      (BotResponse bid bot buls) <- readChan chan
-      writeArray responses bid (Just bot)
-      collect (n - 1) (buls ++ bullets) responses
+    collect 0 _ = return ()
+    collect n responses = do
+      response <- readChan chan
+      writeArray responses (responseID response) (Just response)
+      collect (n - 1) responses
 
 -- | Collect responses and use them to update the world state.
-updateWorldWithResponses :: Chan BotResponse -> Int -> IOWorld ()
+updateWorldWithResponses ∷ Chan BotResponse → Int → IOWorld ()
 updateWorldWithResponses chan numBots = do
-  (newBots, bullets) <- liftIO $ collectResponses chan numBots
+  responses <- liftIO $ collectResponses chan numBots
+  let newBots = map responseState responses
+      bullets = concatMap responseBullets responses
   wldBots    .= newBots
   wldBullets %= (bullets ++)
 
 -- | Gets the current time in milliseconds.
--- NB: getTicks is from SDL and gives the time in milliseconds, unrelated to
--- Robo ticks
-getTime :: IO Int
+getTime ∷ IO Int
 getTime = fromIntegral <$> getTicks
 
+-- | Change the SPS, making sure to clamp it to between the min and max.
+changeSPS :: Int -> IOWorld ()
+changeSPS newSPS = do
+  minSPS <- asks (view ruleMinSPS)
+  maxSPS <- asks (view ruleMaxSPS)
+  let sps = case () of
+              _ | newSPS < minSPS -> minSPS
+                | newSPS > maxSPS -> maxSPS
+                | otherwise       -> newSPS
+
+  time <- liftIO getTime
+  wldTime0     .= time
+  wldStepsDone .= 0
+  wldSPS       .= sps
+
 -- | The World's main loop.
-mainStep :: RenderData -> [Chan BotUpdate] -> Chan BotResponse -> IOWorld Bool
+mainStep ∷ RenderData → [Chan BotUpdate] → Chan BotResponse → IOWorld Bool
 mainStep render updateChan responseChan = do
   -- get the values we need
-  time      <- use wldTime
-  time'     <- liftIO getTime
-  stepIval  <- asks (view ruleStepInterval)
-
-  -- add to the time since last step
-  wldSinceStep += time' - time
+  time0     <- use wldTime0
+  time      <- liftIO getTime
+  stepsDone <- use wldStepsDone
+  sps       <- use wldSPS
 
   -- update the stored time
-  wldTime .= time'
+  wldTime .= time
 
-  -- Only continue if enough time has passed since the last step.
-  -- It would be nice to allow this loop to happen as fast as possible
-  -- to make the animation smoother, but we care about consistency
-  -- (especially when turning up the game speed) more than we care
-  -- about animations smoothness.
-  sinceStep <- use wldSinceStep
-  when (sinceStep >= stepIval) $ do
-    -- subtract the step interval
-    wldSinceStep -= stepIval
+  -- only continue if we need to do more steps to catch up to where we should
+  -- be
+  let targetSteps = (time - time0) * sps `div` 1000
+  when (stepsDone < targetSteps) $ do
+    -- update the number of steps we have done
+    wldStepsDone += 1
 
     -- work out whether we need to do a tick now
     wldSinceTick += 1
@@ -166,7 +178,8 @@ mainStep render updateChan responseChan = do
                  else return False
 
     -- the time in seconds since the last step
-    let passed = 1e-3 * fromIntegral stepIval
+    defSps <- asks (view ruleDefaultSPS)
+    let passed = 1 / fromIntegral defSps
 
     -- update the world, getting back bullet collisions
     bulletCollisions <- promoteContext (stepWorld passed)
@@ -196,7 +209,7 @@ mainStep render updateChan responseChan = do
   return True
 
 -- | Where the monads kick in.
-worldMain :: RenderData -> [BotSpec] -> IOWorld ()
+worldMain ∷ RenderData → [BotSpec] → IOWorld ()
 worldMain render specs = do
   -- initialise the bot states
   let numBots = length specs
@@ -220,7 +233,8 @@ worldMain render specs = do
 
   -- make sure the world knows what time it is (Robo time!)
   time <- liftIO getTime
-  wldTime .= time
+  wldTime  .= time
+  wldTime0 .= time
 
   -- get the responses to initialisation
   updateWorldWithResponses responseChan numBots
@@ -235,7 +249,7 @@ worldMain render specs = do
 -- like so:
 --
 -- > main = runWorld defaultRules [mybot1, mybot2, mybot3]
-runWorld :: Rules -> [BotSpec] -> IO ()
+runWorld ∷ Rules → [BotSpec] → IO ()
 runWorld rules specs = do
   -- make the window
   let screenSize = rules^.ruleArenaSize
@@ -247,8 +261,10 @@ runWorld rules specs = do
         { _wldBots      = []
         , _wldRect      = Rect (screenSize |* 0.5) screenSize 0
         , _wldBullets   = []
+        , _wldTime0     = 0
         , _wldTime      = 0
-        , _wldSinceStep = 0
+        , _wldStepsDone = 0
+        , _wldSPS       = rules^.ruleDefaultSPS
         , _wldSinceTick = 0
         }
 

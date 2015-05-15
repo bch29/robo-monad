@@ -60,8 +60,8 @@ run = do
 
 scan :: ScanData -> Crazy ()
 scan (ScanData distance angle) = do
-  -- fire a bullet when we see an enemy
-  setFiring 4
+    -- fire a bullet when we see an enemy
+    setFiring 4
 
 myOnHitByBullet :: Crazy ()
 myOnHitByBullet = do

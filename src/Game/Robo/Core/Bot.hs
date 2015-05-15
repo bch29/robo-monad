@@ -1,3 +1,4 @@
+{-# LANGUAGE UnicodeSyntax #-}
 {-|
 Module      : Game.Robo.Core.Bot
 Description : Deals with robot threads and physics.
@@ -11,24 +12,24 @@ Portability : non-portable
 
 module Game.Robo.Core.Bot where
 
-import Lens.Family2
-import Lens.Family2.State
+import           Lens.Family2
+import           Lens.Family2.State
 
-import Control.Concurrent
+import           Control.Concurrent
 
-import Control.Applicative
-import Control.Monad
-import Control.Monad.Writer.Strict
-import Control.Monad.Reader
-import Control.Monad.State.Strict
+import           Control.Applicative
+import           Control.Monad
+import           Control.Monad.Reader
+import           Control.Monad.State.Strict
+import           Control.Monad.Writer.Strict
 
-import Data.List
-import Data.Ord
+import           Data.List
+import           Data.Ord
 
-import Game.Robo.Core
-import Game.Robo.Maths
+import           Game.Robo.Core
+import           Game.Robo.Maths
 
-initialBotState ::  Scalar -> Scalar -> BotID -> Vec -> BotState
+initialBotState ∷  Scalar → Scalar → BotID → Vec → BotState
 initialBotState life mass bid pos =
   BotState { _botID        = bid
            , _botThrust    = 0
@@ -53,7 +54,7 @@ initialBotState life mass bid pos =
 
 -- | Returns the 'Rect' surrounding the robot (with its axis aligned with the
 -- robot's heading direction).
-botRect :: Bot Rect
+botRect ∷ Bot Rect
 botRect = do
   sz  <- asks (view ruleBotSize)
   ang <- use botHeading
@@ -63,7 +64,7 @@ botRect = do
 -- | Is the robot colliding with a wall, and if so which wall?
 -- The wall is indicated by its direction (i.e. @Vec 1 0@ for the
 -- right wall).
-tryCollideWall :: Rect -> Bot (Maybe WallCollisionData)
+tryCollideWall ∷ Rect → Bot (Maybe WallCollisionData)
 tryCollideWall arenaRect = do
   rect <- botRect
   let crs = rectCornersOutside arenaRect rect
@@ -85,7 +86,7 @@ tryCollideWall arenaRect = do
 -- | Calculate the robot's new position after some time has passed.
 -- Approximates many integrals. Returns the wall collision data if
 -- a wall was hit.
-stepBotMotion :: Double -> WorldState -> Bot (Maybe WallCollisionData)
+stepBotMotion ∷ Double → WorldState → Bot (Maybe WallCollisionData)
 stepBotMotion passed worldState = do
   driveFric <- asks (view ruleDriveFriction)
   turnFric  <- asks (view ruleTurnFriction)
@@ -126,7 +127,7 @@ stepBotMotion passed worldState = do
 -- | If it is possible to fire with the amount of energy we have,
 -- create a bullet moving away from the end of the robot's gun,
 -- subtract the energy cost, and set the firepower back to 0.
-fireBullet :: Bot [Bullet]
+fireBullet ∷ Bot [Bullet]
 fireBullet = do
   energy <- use botEnergy
   firing <- use (botGun.gunFiring)
@@ -152,7 +153,7 @@ fireBullet = do
     return []
 
 -- | Update the robot's gun, returning a list of newly fired bullets.
-stepBotGun :: Double -> Bool -> Bot [Bullet]
+stepBotGun ∷ Double → Bool → Bot [Bullet]
 stepBotGun passed doTick = do
   -- motion
   gunFric <- asks (view ruleGunFriction)
@@ -173,7 +174,7 @@ stepBotGun passed doTick = do
      else return []
 
 -- | Deal with energy regeneration.
-stepBotEnergy :: Double -> Bot ()
+stepBotEnergy ∷ Double → Bot ()
 stepBotEnergy passed = do
   energy <- use botEnergy
   maxEnergy <- asks (view ruleMaxEnergy)
@@ -184,13 +185,13 @@ stepBotEnergy passed = do
      else botEnergy .= maxEnergy
 
 -- | Update the motion of the robot's radar.
-stepBotRadar :: Double -> Bot ()
+stepBotRadar ∷ Double → Bot ()
 stepBotRadar passed = do
   vel <- use (botRadar.radAngVel)
   botRadar.radHeading += vel * passed
 
 -- | Scans for other robots within this robot's field of view.
-tryScan :: [BotState] -> Bot (Maybe ScanData)
+tryScan ∷ [BotState] → Bot (Maybe ScanData)
 tryScan bots = do
   pos   <- use botPos
   bid   <- use botID
@@ -218,7 +219,7 @@ tryScan bots = do
     _       -> Nothing
 
 -- | Tests if a bullet has hit the robot, and returns True if so.
-testBulletHit :: Bullet -> Bot Bool
+testBulletHit ∷ Bullet → Bot Bool
 testBulletHit bul = do
   bid <- use botID
   box <- botRect
@@ -227,10 +228,10 @@ testBulletHit bul = do
   return $ owner /= bid && withinRect bpos box
 
 -- | Print a log from a robot with the given name to the console.
-writeLog :: String -> [String] -> IO ()
+writeLog ∷ String → [String] → IO ()
 writeLog name = putStr . unlines . map ((name ++ ": ") ++)
 
-botMain :: BotSpec -> BotID -> Chan BotUpdate -> Chan BotResponse -> IOBot ()
+botMain ∷ BotSpec → BotID → Chan BotUpdate → Chan BotResponse → IOBot ()
 botMain spec bid updateChan responseChan =
   case spec of
     BotSpec name initialState
@@ -305,6 +306,6 @@ botMain spec bid updateChan responseChan =
 
 -- | Run a robot. This never terminates and is designed to be called in its own thread.
 -- Communicates with the World thread via channels.
-runBot :: Rules -> BotSpec -> BotState -> BotID -> Chan BotUpdate -> Chan BotResponse -> IO ()
+runBot ∷ Rules → BotSpec → BotState → BotID → Chan BotUpdate → Chan BotResponse → IO ()
 runBot rules spec state bid updateChan responseChan =
   evalContext (botMain spec bid updateChan responseChan) rules state

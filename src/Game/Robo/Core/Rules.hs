@@ -59,6 +59,8 @@ defaultRules = Rules
   -- Miscellaneous
   , _ruleArenaSize          = Vec 800 800
   , _ruleSpawnMargin        = 100
-  , _ruleStepInterval       = round (1000 / 60)
+  , _ruleMinSPS             = 12
+  , _ruleMaxSPS             = 1000
+  , _ruleDefaultSPS         = 60
   , _ruleTickSteps          = 6
   }

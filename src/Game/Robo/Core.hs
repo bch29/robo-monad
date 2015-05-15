@@ -83,15 +83,15 @@ applyAllBots bots = do
 
 -- | Return the first bot ID that satisfies a monadic predicate by running it
 -- for each bot in turn but stopping when it returns True.
-botsFindM :: Monad m => ContextT BotState m Bool -> ContextT WorldState m BotID
+botsFindM :: Monad m => ContextT BotState m Bool -> ContextT WorldState m (Maybe BotID)
 botsFindM action = do
   botStates <- use wldBots
   let doWhile bid sts' (st:sts) = do
         (cont, st') <- lift $ runStateT action st
         if cont
            then doWhile (bid+1) (st':sts') sts
-           else return (bid, reverse (st':sts') ++ sts)
-      doWhile _ sts' [] = return (-1, reverse sts')
+           else return (Just bid, reverse (st':sts') ++ sts)
+      doWhile _ sts' [] = return (Nothing, reverse sts')
   (res, newStates) <- doWhile 1 [] botStates
   wldBots .= newStates
   return res

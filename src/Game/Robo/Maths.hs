@@ -17,7 +17,8 @@ Note all angles are in radians unless specified otherwise.
 
 -}
 
-{-# LANGUAGE Trustworthy #-} -- Enables compilation of robot files with Safe Haskell.
+{-# LANGUAGE Trustworthy   #-}
+{-# LANGUAGE UnicodeSyntax #-}
 
 module Game.Robo.Maths
   (
@@ -40,45 +41,44 @@ module Game.Robo.Maths
   , scanWall, getWallDist
   ) where
 
-import Lens.Family2
-import Game.Robo.Core.Types.Maths
+import           Game.Robo.Core.Types.Maths
+import           Lens.Family2
 
 -----------------------------------
 -- VECTORS
 -----------------------------------
 
 -- | The angle from the first argument to the second, in radians.
-angleTo :: Vec -> Vec -> Angle
+angleTo ∷ Vec → Vec → Angle
 angleTo (Vec x1 y1) (Vec x2 y2) = atan2 (y2 - y1) (x2 - x1)
 
 -- | The (anticlockise) angle between the given vector and the x axis, in radians.
-angleToHorizontal :: Vec -> Angle
+angleToHorizontal ∷ Vec → Angle
 angleToHorizontal (Vec x y) = atan2 y x
 
 -- | Create a normalized vector in the direction of the given angle.
-vecFromAngle :: Angle -> Vec
+vecFromAngle ∷ Angle → Vec
 vecFromAngle ang = Vec (cos ang) (sin ang)
 
--- | Rotate a vector about the origin by an angle.
 rotateVec :: Angle -> Vec -> Vec
-rotateVec ang v = vecMag v *| vecFromAngle newAng
+rotateVec ang v = vecFromAngle newAng |* vecMag v
   where oldAng = angleToHorizontal v
         newAng = oldAng + ang
 
 -- | Get the magnitude of the vector.
-vecMag :: Vec -> Scalar
+vecMag ∷ Vec → Scalar
 vecMag (Vec x y) = sqrt (x*x + y*y)
 
 -- | Normalise a vector.
-vecNorm :: Vec -> Vec
+vecNorm ∷ Vec → Vec
 vecNorm vec = vec |* (1 / vecMag vec)
 
 -- | The vector perpendicular to this one on the right-hand side.
-vecPerpR :: Vec -> Vec
+vecPerpR ∷ Vec → Vec
 vecPerpR (Vec x y) = Vec y (-x)
 
 -- | The vector perpendicular to this one on the left-hand side.
-vecPerpL :: Vec -> Vec
+vecPerpL ∷ Vec → Vec
 vecPerpL (Vec x y) = Vec (-y) x
 
 -- | Is a point within a segment of a circle with its centre at the origin?
@@ -86,7 +86,7 @@ vecPerpL (Vec x y) = Vec (-y) x
 -- from @ang1@ to @ang2@.
 --
 -- > inSegment ang1 ang2 radius xy
-inSegment :: Angle -> Angle -> Scalar -> Vec -> Bool
+inSegment ∷ Angle → Angle → Scalar → Vec → Bool
 inSegment ang1 ang2 radius xy = withinDist && withinAngles
   where withinDist = vecMag xy <= radius
         ang1' = angNormAbsolute ang1
@@ -101,7 +101,7 @@ inSegment ang1 ang2 radius xy = withinDist && withinAngles
 -- from @ang1@ to @ang2@.
 --
 -- > inSegmentCentre ang1 ang2 radius centre xy
-inSegmentCentre :: Angle -> Angle -> Scalar -> Vec -> Vec -> Bool
+inSegmentCentre ∷ Angle → Angle → Scalar → Vec → Vec → Bool
 inSegmentCentre ang1 ang2 radius centre xy =
   inSegment ang1 ang2 radius (xy - centre)
 
@@ -110,15 +110,15 @@ inSegmentCentre ang1 ang2 radius centre xy =
 -----------------------------------
 
 -- | Convert an angle in radians to degrees.
-radToDeg :: Angle -> Angle
+radToDeg ∷ Angle → Angle
 radToDeg = (/ pi) . (* 180)
 
 -- | Convert an angle in degrees to radians.
-degToRad :: Angle -> Angle
+degToRad ∷ Angle → Angle
 degToRad = (* pi) . (/ 180)
 
 -- | Normalise an angle to the range [-pi, pi)
-angNormRelative :: Angle -> Angle
+angNormRelative ∷ Angle → Angle
 angNormRelative ang =
   case () of
     () | ang < -pi  -> angNormRelative (ang + 2 * pi)
@@ -126,7 +126,7 @@ angNormRelative ang =
        | otherwise -> ang
 
 -- | Normalise an angle to the range [0, 2*pi)
-angNormAbsolute :: Angle -> Angle
+angNormAbsolute ∷ Angle → Angle
 angNormAbsolute ang =
   case () of
     () | ang < 0   -> angNormAbsolute (ang + 2 * pi)
@@ -138,7 +138,7 @@ angNormAbsolute ang =
 -----------------------------------
 
 -- | Is a point within a rectangle?
-withinRect :: Vec -> Rect -> Bool
+withinRect ∷ Vec → Rect → Bool
 withinRect vec rect = x >= 0 && y >= 0 && x <= maxX && y <= maxY
   where relVec    = vec - (rect^.rectCentre)
         rotated   = rotateVec (rect^.rectAngle) relVec
@@ -146,7 +146,7 @@ withinRect vec rect = x >= 0 && y >= 0 && x <= maxX && y <= maxY
         (Vec maxX maxY) = rect^.rectSize
 
 -- | Get all of the corners of the rectangle, in clockwise order.
-rectCorners :: Rect -> [Vec]
+rectCorners ∷ Rect → [Vec]
 rectCorners rect = (shift . rotate) basic
   where (Vec sx sy) = (rect^.rectSize) |* 0.5
         basic = [ Vec sx sy
@@ -157,7 +157,7 @@ rectCorners rect = (shift . rotate) basic
         shift  = map (+ rect^.rectCentre)
 
 -- | Do there exist any points that are contained within both rectangles?
-rectsIntersect :: Rect -> Rect -> Bool
+rectsIntersect ∷ Rect → Rect → Bool
 rectsIntersect a b =
     any (withinRect' a) (rectPoints b) ||
     any (withinRect' b) (rectPoints a)
@@ -166,17 +166,17 @@ rectsIntersect a b =
 -- | Does 'Rect' @a@ encloses 'Rect' @b@ completely?
 --
 -- > rectEnclosesRect a b
-rectEnclosesRect :: Rect -> Rect -> Bool
+rectEnclosesRect ∷ Rect → Rect → Bool
 rectEnclosesRect a b = null (rectCornersOutside a b)
 
 -- | Get the corners of @b@ that are outside @a@.
 --
 -- > rectCornersOutside a b
-rectCornersOutside :: Rect -> Rect -> [Vec]
+rectCornersOutside ∷ Rect → Rect → [Vec]
 rectCornersOutside a b = filter (not . flip withinRect a) (rectCorners b)
 
 -- | Returns the set of all corners of the 'Rect' and also its centre.
-rectPoints :: Rect -> [Vec]
+rectPoints ∷ Rect → [Vec]
 rectPoints rect = (rect^.rectCentre) : rectCorners rect
 
 -----------------------------------
@@ -187,7 +187,7 @@ rectPoints rect = (rect^.rectCentre) : rectCorners rect
 -- from the robot's current position in the given direction.
 --
 -- > scanWall pos arenaSize dir
-scanWall :: Vec -> Vec -> Vec -> Vec
+scanWall ∷ Vec → Vec → Vec → Vec
 scanWall pos arenaSize dir =
   let Vec wx wy = arenaSize
       Vec dx dy = dir
@@ -214,7 +214,7 @@ scanWall pos arenaSize dir =
 -- | Get the euclidean distance to the nearest wall in the given vector direction.
 --
 -- > getWallDist pos arenaSize dir
-getWallDist :: Vec -> Vec -> Vec -> Scalar
+getWallDist ∷ Vec → Vec → Vec → Scalar
 getWallDist pos arenaSize dir =
   let xy = scanWall pos arenaSize dir
   in  vecMag (xy - pos)
@@ -225,21 +225,21 @@ Helper functions for scanWall.
 
 -- | Get the Y coordinate of the projection of a point onto the left
 -- wall along axis @dir@.
-projectLeftY :: Vec -> Vec -> Scalar
+projectLeftY ∷ Vec → Vec → Scalar
 projectLeftY (Vec x y) dir =
   let theta = pi - angleToHorizontal dir
   in  x * tan theta + y
 
 -- | Get the X coordinate of the projection of a point onto the upper
 -- wall along axis @dir@.
-projectUpX :: Vec -> Vec -> Scalar
+projectUpX ∷ Vec → Vec → Scalar
 projectUpX (Vec x y) dir =
   let theta = angleToHorizontal dir - pi/2
   in  y * tan theta + x
 
 -- | Get the Y coordinate of the projection of a point onto the right
 -- wall along axis @dir@.
-projectRightY :: Vec -> Vec -> Vec -> Scalar
+projectRightY ∷ Vec → Vec → Vec → Scalar
 projectRightY (Vec x y) (Vec wx _) dir =
   let theta = angleToHorizontal dir
       dx = wx - x
@@ -247,7 +247,7 @@ projectRightY (Vec x y) (Vec wx _) dir =
 
 -- | Get the X coordinate of the projection of a point onto the lower
 -- wall along axis @dir@.
-projectDownX :: Vec -> Vec -> Vec -> Scalar
+projectDownX ∷ Vec → Vec → Vec → Scalar
 projectDownX (Vec x y) (Vec _ wy) dir =
   let theta = pi/2 - angleToHorizontal dir
       dy = wy - y

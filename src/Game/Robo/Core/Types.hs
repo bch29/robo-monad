@@ -106,8 +106,12 @@ data Rules = Rules
   , _ruleArenaSize          :: Vec
   -- | The smallest distance from the edge of arena that robots can spawn at.
   , _ruleSpawnMargin        :: Scalar
-  -- | The time between updates of the simulation, in milliseconds.
-  , _ruleStepInterval       :: Int
+  -- | The minimum number of steps per second.
+  , _ruleMinSPS             :: Int
+  -- | The maximum number of steps per second.
+  , _ruleMaxSPS             :: Int
+  -- | The default (starting) number of steps per second.
+  , _ruleDefaultSPS         :: Int
   -- | The number of steps between each Robo tick.
   , _ruleTickSteps          :: Int
   }
@@ -164,8 +168,10 @@ data WorldState = WorldState
   { _wldBullets   :: ![Bullet]   -- The bullets fired by robots.
   , _wldBots      :: ![BotState] -- The robots themselves.
   , _wldRect      :: !Rect       -- Represents the size of the arena.
+  , _wldTime0     :: !Int        -- The time when the SPS was last changed.
   , _wldTime      :: !Int        -- The time in milliseconds since simulation started.
-  , _wldSinceStep :: !Int        -- The number of milliseconds since the last step.
+  , _wldStepsDone :: !Int        -- The number of steps done since the SPS was last changed.
+  , _wldSPS       :: !Int        -- The current number of steps per second.
   , _wldSinceTick :: !Int        -- The number of steps that have passed since the last tick.
   }
 
