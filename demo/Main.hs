@@ -21,6 +21,6 @@ import Crazy
 myRules :: Rules
 myRules = defaultRules
 
--- Start the world with our ruleset and two robots.
+-- Start the world with our ruleset and robots.
 main :: IO ()
 main = runWorld myRules [crazy, wallhugger]
