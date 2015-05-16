@@ -4,7 +4,7 @@ Heavily inspired by RoboCode. Program robots in Haskell and watch them fight.
 Each robot runs in the Robo monad, which only allows access to a limited set of actions to control the robot and interact with the world around it.
 
 ## Running
-Clone, then execute `cabal run` to see the demo. Uses the `SDL` and `SDL-gfx` packages, which may require installing the C SDL1.2 development libraries. See the Haddocks for documentation of Robo actions.
+Clone, then execute `cabal run` to see the demo. Uses the `GLUT` package, which may require installing the GLUT or freeglut development libraries. See the Haddocks for documentation of Robo actions.
 
 ## Controls
 For now there are very few in-game controls:
