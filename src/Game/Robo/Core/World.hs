@@ -15,8 +15,6 @@ Portability : non-portable
 
 module Game.Robo.Core.World (runWorld) where
 
-import qualified Graphics.UI.GLUT       as GL
-
 import           Lens.Family2
 import           Lens.Family2.State
 
@@ -218,6 +216,9 @@ worldMain = do
 worldKbd :: Char -> IOWorld ()
 worldKbd '+' = promoteContext $ modifySPS (+10)
 worldKbd '-' = promoteContext $ modifySPS (subtract 10)
+worldKbd '=' = do
+  sps <- asks (view ruleDefaultSPS)
+  promoteContext $ setSPS sps
 worldKbd _ = return ()
 
 -- | Initialise the game.
