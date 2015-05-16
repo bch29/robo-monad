@@ -6,9 +6,13 @@ Each robot runs in the Robo monad, which only allows access to a limited set of 
 ## Running
 Clone, then execute `cabal run` to see the demo. Uses the `SDL` and `SDL-gfx` packages, which may require installing the C SDL1.2 development libraries. See the Haddocks for documentation of Robo actions.
 
+## Controls
+For now there are very few in-game controls:
+ - '+' to increase the simulation speed (by 10 steps per second)
+ - '-' to decrease the simulation speed (by 10 steps per second)
+
 ## Roadmap
- - Add health, let robots be destroyed
+ - Let robots be destroyed
  - Make multiple rounds, keeping track of victories
  - Add collisions between robots
- - Allow the simulation to run at different speeds
  - Add a facility to allow robots to save data to files
