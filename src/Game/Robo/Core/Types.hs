@@ -23,6 +23,8 @@ module Game.Robo.Core.Types
   , World, IOWorld, DrawWorld
   , PureContext, DrawContext, ContextT
 
+  , GameActions (..)
+
   , WorldState (..)
 
   , BotID
@@ -45,6 +47,7 @@ import Control.Monad.Random
 import Lens.Family2
 
 import Control.DeepSeq
+import Control.Concurrent
 
 import Game.Robo.Render
 import Game.Robo.Core.Types.Maths
@@ -160,6 +163,22 @@ type DrawContext s = ContextT s (RandT StdGen Draw)
 type ContextT s m = StateT s (WriterT [String] (ReaderT Rules m))
 
 ---------------------------------
+--  Main Game Engine
+---------------------------------
+
+data GameActions s = GameActions
+  {
+    -- | The action which is called as the game is initialising.
+    actionInit :: Maybe (ContextT s IO ())
+    -- | The main action which is continually called while doing nothing else.
+  , actionMain :: Maybe (ContextT s IO ())
+    -- | The action that that is called when it is time to render the frame.
+  , actionDraw :: Maybe (DrawContext s ())
+    -- | The action that is called when a key is pressed.
+  , actionKeyboard :: Maybe (Char -> ContextT s IO ())
+  }
+
+---------------------------------
 --  World State
 ---------------------------------
 
@@ -173,6 +192,9 @@ data WorldState = WorldState
   , _wldStepsDone :: !Int        -- The number of steps done since the SPS was last changed.
   , _wldSPS       :: !Int        -- The current number of steps per second.
   , _wldSinceTick :: !Int        -- The number of steps that have passed since the last tick.
+  , _wldUpdateChans  :: [Chan BotUpdate] -- The channels along which the world sends update requests to the bots.
+     -- The channel along which the bots send update responses to the world.
+  , _wldResponseChan :: Maybe (Chan BotResponse)
   }
 
 ---------------------------------

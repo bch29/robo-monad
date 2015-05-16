@@ -24,8 +24,9 @@ module Game.Robo.Core
   , promoteContext
   , runDrawing
   , forceContext
-  , whileContext
   , iterateContext
+  , gameActions
+  , startGameLoop
   , module X
   ) where
 
@@ -173,27 +174,62 @@ iterateContext val1 ctxf = do
 
   liftIO $ loop state1 val1
 
--- whileContext :: NFData s => ContextT s IO Bool -> ContextT s IO ()
--- whileContext ctx =
---   let ctxf _ = do
---         continue <- ctx
---         return $ if continue
---                     then Just continue
---                     else Nothing
---   in iterateContext True ctxf
+-- | Runs a game action and updates the state reference when it is done.
+runAction :: NFData s => Rules -> IORef s -> ContextT s IO () -> IO ()
+runAction rules ref action = do
+  st <- readIORef ref
+  (_, st', lg) <- runContext action rules st
+  putStr (unlines lg)
+  evaluate (rnf st')
+  writeIORef ref st'
 
-whileContext :: NFData s => ContextT s IO Bool -> ContextT s IO ()
-whileContext ctx = do
-  rules <- ask
-  state1 <- get
-  ref <- liftIO $ newIORef state1
-  let loop = do
-        st <- readIORef ref
-        (cont, st', lg) <- runContext ctx rules st
-        putStr (unlines lg)
-        evaluate (rnf st')
-        when cont $
-          writeIORef ref st'
+-- | An initial, empty set of game actions.
+gameActions = GameActions
+  { actionInit     = Nothing
+  , actionMain     = Nothing
+  , actionDraw     = Nothing
+  , actionKeyboard = Nothing
+  }
 
-  liftIO (idleCallback $= Just loop)
+-- | Starts the game loop given a set of rules, an initial state,
+-- and a set of actions.
+startGameLoop :: NFData s =>
+                 String -- ^ The window name.
+              -> Int -- ^ The window width.
+              -> Int -- ^ The window height.
+              -> Rules -- ^ The game rules.
+              -> s -- ^ The initial game state.
+              -> GameActions s -- ^ The set of game actions.
+              -> IO ()
+startGameLoop winName winW winH rules initialState actions = evalContext go rules initialState
+  where
+    go = do
+      -- initialise
+      render <- liftIO $ startRender winName winW winH
 
+      -- run the initialisation action
+      case actionInit actions of
+       Just action -> action
+       Nothing -> return ()
+
+      -- get the state
+      st <- get
+
+      -- set up our state reference
+      ref <- liftIO $ newIORef st
+      -- set up the basic callbacks
+      idleCallback     $= liftIO . runAction rules ref <$> actionMain actions
+      keyboardCallback $= case actionKeyboard actions of
+       Just kbd -> Just $ \k _ -> liftIO . runAction rules ref $ kbd k
+       Nothing -> Nothing
+
+      -- draw 60 times per second
+      let timerCallback = do
+            case actionDraw actions of
+              Nothing -> return ()
+              Just draw -> runAction rules ref (runDrawing draw render)
+            addTimerCallback (1000 `div` 60) timerCallback
+      liftIO $ addTimerCallback (1000 `div` 60) timerCallback
+
+      -- start the GLUT main loop
+      mainLoop

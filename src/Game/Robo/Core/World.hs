@@ -135,8 +135,8 @@ getTime ∷ IO Int
 getTime = fromIntegral <$> getTicks
 
 -- | Change the SPS, making sure to clamp it to between the min and max.
-changeSPS :: Int -> IOWorld ()
-changeSPS newSPS = do
+setSPS :: Int -> World ()
+setSPS newSPS = do
   minSPS <- asks (view ruleMinSPS)
   maxSPS <- asks (view ruleMaxSPS)
   let sps = case () of
@@ -144,15 +144,21 @@ changeSPS newSPS = do
                 | newSPS > maxSPS -> maxSPS
                 | otherwise       -> newSPS
 
-  time <- liftIO getTime
+  time <- use wldTime
   wldTime0     .= time
   wldStepsDone .= 0
   wldSPS       .= sps
 
--- | The World's main loop.
-mainStep ∷ RenderData → [Chan BotUpdate] → Chan BotResponse → IOWorld Bool
-mainStep render updateChan responseChan = do
-  -- get the values we need
+-- | Modify the SPS with a pure function, clamping between the min and max.
+modifySPS :: (Int -> Int) -> World ()
+modifySPS f = do
+  sps <- use wldSPS
+  setSPS (f sps)
+
+-- | The World's main logic action.
+worldMain ∷ IOWorld ()
+worldMain = do
+  -- get timing values
   time0     <- use wldTime0
   time      <- liftIO getTime
   stepsDone <- use wldStepsDone
@@ -198,19 +204,25 @@ mainStep render updateChan responseChan = do
             = filter (wasBotInvolved (botState^.botID)) bulletCollisions
           }
         botUpdates = map mkUpdate botStates
-    liftIO $ zipWithM_ writeChan updateChan botUpdates
+
+    -- get the channels out of the world state
+    updateChans  <- use wldUpdateChans
+    Just responseChan <- use wldResponseChan
+    liftIO $ zipWithM_ writeChan updateChans botUpdates
 
     -- get the responses back
     numBots <- length <$> use wldBots
     updateWorldWithResponses responseChan numBots
 
-    -- draw the world
-    runDrawing drawWorld render
-  return True
+-- | Handle keyboard input.
+worldKbd :: Char -> IOWorld ()
+worldKbd '+' = promoteContext $ modifySPS (+10)
+worldKbd '-' = promoteContext $ modifySPS (subtract 10)
+worldKbd _ = return ()
 
--- | Where the monads kick in.
-worldMain ∷ RenderData → [BotSpec] → IOWorld ()
-worldMain render specs = do
+-- | Initialise the game.
+worldInit ∷ [BotSpec] → IOWorld ()
+worldInit specs = do
   -- initialise the bot states
   let numBots = length specs
   mass        <- asks (view ruleMass)
@@ -239,8 +251,9 @@ worldMain render specs = do
   -- get the responses to initialisation
   updateWorldWithResponses responseChan numBots
 
-  -- start the main loop
-  whileContext $ mainStep render updateChans responseChan
+  -- store the channels in the world state
+  wldUpdateChans .= updateChans
+  wldResponseChan .= Just responseChan
 
 -- | Run a battle with the given rules and robots.
 --
@@ -251,10 +264,9 @@ worldMain render specs = do
 -- > main = runWorld defaultRules [mybot1, mybot2, mybot3]
 runWorld ∷ Rules → [BotSpec] → IO ()
 runWorld rules specs = do
-  -- make the window
+  -- work out the world dimensions
   let screenSize = rules^.ruleArenaSize
       (width, height) = (round (screenSize^.vX), round (screenSize^.vY))
-  render <- startRender "RoboMonad" width height
 
   -- initialise the world state
   let worldState = WorldState
@@ -266,8 +278,16 @@ runWorld rules specs = do
         , _wldStepsDone = 0
         , _wldSPS       = rules^.ruleDefaultSPS
         , _wldSinceTick = 0
+        , _wldUpdateChans = []
+        , _wldResponseChan = Nothing
         }
 
-  -- jump into the World monad
-  evalContext (worldMain render specs) rules worldState
-  GL.mainLoop
+      worldActions = GameActions
+        { actionInit = Just (worldInit specs)
+        , actionMain = Just worldMain
+        , actionDraw = Just drawWorld
+        , actionKeyboard = Just worldKbd
+        }
+
+  -- start the game
+  startGameLoop "RoboMonad" width height rules worldState worldActions
