@@ -207,6 +207,7 @@ type BotID = Int
 -- | State information for a robot.
 data BotState = BotState
   { _botID        :: !BotID      -- The ID number of the robot.
+  , _botTID       :: !(Maybe ThreadId) -- The ID of the thread in which the robot is running, if any.
   , _botThrust    :: !Scalar     -- The engine power.
   , _botAngThrust :: !Scalar     -- The turning power.
   , _botPos       :: !Vec        -- The position in pixels relative to the top-left corner.

@@ -26,3 +26,7 @@ dist
 # TAGS files
 TAGS
 tags
+
+# stack
+/.stack*
+/stack*

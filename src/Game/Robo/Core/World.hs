@@ -91,12 +91,28 @@ handleBulletCollisions = do
     wldBullets .= newBullets
     return collisions
 
+-- | Removes dead bots from the game, updates other bots' IDs.
+pruneBots ∷ World [BotState]
+pruneBots = do
+  bots <- use wldBots
+  let (alive, dead) = partition ((> 0) . view botLife) bots
+  -- if there are dead bots, we need to get rid of them and assign new IDs to the rest
+  if not (null dead) then do
+    -- assign new bot IDs
+    let updated = zipWith (set botID) [1..] alive
+    wldBots .= updated
+
+    return dead
+  else return []
+
 -- | Steps the world (minus the bots) forward a tick, returns a list of
 -- bullet collisions.
-stepWorld ∷ Double → World [BulletCollision]
+stepWorld ∷ Double → World ([BulletCollision], [BotState])
 stepWorld passed = do
+  deadBots <- pruneBots
   stepBullets passed
-  handleBulletCollisions
+  collisions <- handleBulletCollisions
+  return (collisions, deadBots)
 
 -- | Gets random positions within the given size for bots to start in.
 generateSpawnPositions ∷ MonadRandom m ⇒ Int → Scalar → Vec → m [Vec]
@@ -133,7 +149,7 @@ getTime ∷ IO Int
 getTime = fromIntegral <$> getTicks
 
 -- | Change the SPS, making sure to clamp it to between the min and max.
-setSPS :: Int -> World ()
+setSPS ∷ Int → World ()
 setSPS newSPS = do
   minSPS <- asks (view ruleMinSPS)
   maxSPS <- asks (view ruleMaxSPS)
@@ -148,7 +164,7 @@ setSPS newSPS = do
   wldSPS       .= sps
 
 -- | Modify the SPS with a pure function, clamping between the min and max.
-modifySPS :: (Int -> Int) -> World ()
+modifySPS ∷ (Int → Int) → World ()
 modifySPS f = do
   sps <- use wldSPS
   setSPS (f sps)
@@ -185,14 +201,20 @@ worldMain = do
     defSps <- asks (view ruleDefaultSPS)
     let passed = 1 / fromIntegral defSps
 
-    -- update the world, getting back bullet collisions
-    bulletCollisions <- promoteContext (stepWorld passed)
+    -- update the world, getting back bullet collisions and dead bots
+    (bulletCollisions, deadBots) <- promoteContext (stepWorld passed)
     let wasBotInvolved bid col = col^.bcolAggressor == bid
                               || col^.bcolVictim    == bid
 
+    -- kill the threads running dead bots
+    let maybeDo action marg = case marg of
+          Just arg -> action arg
+          Nothing -> return ()
+    liftIO $ mapM_ (maybeDo killThread . view botTID) deadBots
+
     -- tell the bots to update themselves
     worldState <- get
-    botStates <- use wldBots
+    botStates  <- use wldBots
     let mkUpdate botState = BotUpdate
           { updateState  = botState
           , updateWorld  = worldState
@@ -204,7 +226,7 @@ worldMain = do
         botUpdates = map mkUpdate botStates
 
     -- get the channels out of the world state
-    updateChans  <- use wldUpdateChans
+    updateChans <- use wldUpdateChans
     Just responseChan <- use wldResponseChan
     liftIO $ zipWithM_ writeChan updateChans botUpdates
 
@@ -213,7 +235,7 @@ worldMain = do
     updateWorldWithResponses responseChan numBots
 
 -- | Handle keyboard input.
-worldKbd :: Char -> IOWorld ()
+worldKbd ∷ Char → IOWorld ()
 worldKbd '+' = promoteContext $ modifySPS (+10)
 worldKbd '-' = promoteContext $ modifySPS (subtract 10)
 worldKbd '=' = do
@@ -240,9 +262,9 @@ worldInit specs = do
 
   -- start the bot threads, each with their own update channel
   rules <- ask
-  let runBot' (spec, botState, bid, updChan) =
-        runBot rules spec botState bid updChan responseChan
-  liftIO $ mapM_ (forkIO . runBot') (zip4 specs bots [1..] updateChans)
+  let runBot' (spec, botState, updChan) =
+        runBot rules spec botState updChan responseChan
+  tids <- liftIO $ mapM (forkIO . runBot') (zip3 specs bots updateChans)
 
   -- make sure the world knows what time it is (Robo time!)
   time <- liftIO getTime
@@ -251,6 +273,8 @@ worldInit specs = do
 
   -- get the responses to initialisation
   updateWorldWithResponses responseChan numBots
+  -- assign bots their thread IDs
+  wldBots %= zipWith (set botTID) (map Just tids)
 
   -- store the channels in the world state
   wldUpdateChans .= updateChans

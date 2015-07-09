@@ -33,6 +33,7 @@ module Game.Robo.Core
 import Graphics.UI.GLUT hiding (get)
 import Data.IORef
 import Data.Array
+import Data.Maybe (fromMaybe)
 
 import Lens.Family2.State
 
@@ -207,10 +208,8 @@ startGameLoop winName winW winH rules initialState actions = evalContext go rule
       -- initialise
       render <- liftIO $ startRender winName winW winH
 
-      -- run the initialisation action
-      case actionInit actions of
-       Just action -> action
-       Nothing -> return ()
+      -- run the initialisation action if it exists
+      fromMaybe (return()) (actionInit actions)
 
       -- get the state
       st <- get

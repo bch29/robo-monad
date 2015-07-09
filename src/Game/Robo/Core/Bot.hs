@@ -32,6 +32,7 @@ import           Game.Robo.Maths
 initialBotState ∷  Scalar → Scalar → BotID → Vec → BotState
 initialBotState life mass bid pos =
   BotState { _botID        = bid
+           , _botTID       = Nothing
            , _botThrust    = 0
            , _botAngThrust = 0
            , _botPos       = pos
@@ -231,8 +232,8 @@ testBulletHit bul = do
 writeLog ∷ String → [String] → IO ()
 writeLog name = putStr . unlines . map ((name ++ ": ") ++)
 
-botMain ∷ BotSpec → BotID → Chan BotUpdate → Chan BotResponse → IOBot ()
-botMain spec bid updateChan responseChan =
+botMain ∷ BotSpec → Chan BotUpdate → Chan BotResponse → IOBot ()
+botMain spec updateChan responseChan =
   case spec of
     BotSpec name initialState
       onInit' onTick' onScan'
@@ -245,6 +246,7 @@ botMain spec bid updateChan responseChan =
         liftIO $ putStr (unlines lg)
 
         -- send the initialisation results back to the main thread
+        bid <- use botID
         liftIO $ writeChan responseChan BotResponse
           { responseID = bid
           , responseState = state'
@@ -299,13 +301,13 @@ botMain spec bid updateChan responseChan =
                 , responseState   = botState'
                 , responseBullets = bullets }
 
-              -- loop forever (until the thread is terminated)
-              return (Just userState')
+              -- loop indefinitely (until the main thread dies)
+              return $ Just userState'
         -- start the main loop
         iterateContext userState1 step
 
 -- | Run a robot. This never terminates and is designed to be called in its own thread.
 -- Communicates with the World thread via channels.
-runBot ∷ Rules → BotSpec → BotState → BotID → Chan BotUpdate → Chan BotResponse → IO ()
-runBot rules spec state bid updateChan responseChan =
-  evalContext (botMain spec bid updateChan responseChan) rules state
+runBot ∷ Rules → BotSpec → BotState → Chan BotUpdate → Chan BotResponse → IO ()
+runBot rules spec state updateChan responseChan =
+  evalContext (botMain spec updateChan responseChan) rules state
