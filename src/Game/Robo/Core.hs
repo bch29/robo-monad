@@ -30,7 +30,7 @@ module Game.Robo.Core
   , module X
   ) where
 
-import Graphics.UI.GLUT hiding (get)
+import Graphics.UI.GLFW
 import Data.IORef
 import Data.Array
 import Data.Maybe (fromMaybe)
@@ -202,7 +202,8 @@ startGameLoop :: NFData s =>
               -> s -- ^ The initial game state.
               -> GameActions s -- ^ The set of game actions.
               -> IO ()
-startGameLoop winName winW winH rules initialState actions = evalContext go rules initialState
+startGameLoop winName winW winH rules initialState actions =
+  evalContext go rules initialState
   where
     go = do
       -- initialise
@@ -216,19 +217,32 @@ startGameLoop winName winW winH rules initialState actions = evalContext go rule
 
       -- set up our state reference
       ref <- liftIO $ newIORef st
-      -- set up the basic callbacks
-      idleCallback     $= liftIO . runAction rules ref <$> actionMain actions
-      keyboardCallback $= case actionKeyboard actions of
-       Just kbd -> Just $ \k _ -> liftIO . runAction rules ref $ kbd k
-       Nothing -> Nothing
 
-      -- draw 60 times per second
-      let timerCallback = do
+      let doMain = case actionMain actions of
+            Just action -> liftIO $ runAction rules ref action
+            Nothing -> return ()
+
+          doKeyboard = case actionKeyboard actions of
+            Just kbd -> Just $ \_ k -> runAction rules ref $ kbd k
+            Nothing -> Nothing
+
+          doDrawing =
             case actionDraw actions of
+              Just draw -> liftIO $ runAction rules ref (runDrawing draw render)
               Nothing -> return ()
-              Just draw -> runAction rules ref (runDrawing draw render)
-            addTimerCallback (1000 `div` 60) timerCallback
-      liftIO $ addTimerCallback (1000 `div` 60) timerCallback
 
-      -- start the GLUT main loop
-      mainLoop
+      liftIO $ setCharCallback (renderDataWin render) doKeyboard
+
+      let mainLoop lastTick = do
+            liftIO pollEvents
+            doMain
+            ticks <- liftIO getTicks
+            let tickTime = 1000 `div` 60
+            lastTick' <- if ticks - lastTick > tickTime
+                            then do doDrawing
+                                    liftIO (drawRender render)
+                                    return (lastTick + tickTime)
+                            else return lastTick
+            q <- liftIO $ windowShouldClose (renderDataWin render)
+            unless q (mainLoop lastTick')
+      mainLoop 0

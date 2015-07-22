@@ -12,7 +12,7 @@ Portability : non-portable
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Game.Robo.Render
-  ( RenderData
+  ( RenderData, renderDataWin
   , Colour
   , Draw
   , MonadDraw
@@ -20,9 +20,11 @@ module Game.Robo.Render
   , getTicks
   , colour, colourWord
   , runDraw, drawPoly, drawLine, drawCircle
+  , drawRender
   ) where
 
-import Graphics.UI.GLUT as GL hiding (Line)
+import Graphics.UI.GLFW as GL hiding (Line)
+import Graphics.Rendering.OpenGL as GL hiding (Line)
 
 import Control.Applicative
 import Control.Monad.State.Strict
@@ -35,7 +37,10 @@ import Data.Bits
 
 import Game.Robo.Core.Types.Maths
 
-data RenderData = RenderData (IORef [DrawObject])
+data RenderData = RenderData Window (IORef [DrawObject])
+
+renderDataWin :: RenderData -> Window
+renderDataWin (RenderData win _) = win
 
 -------------------------------------
 --  DRAWING
@@ -94,13 +99,12 @@ colourWord w =
 -- filling the background with the given colour, and returning the value
 -- in the Draw monad.
 runDraw :: Draw a -> RenderData -> IO a
-runDraw draw (RenderData drawVar) = do
+runDraw draw rd@(RenderData _ drawVar) = do
   let draws = unwrapDraw draw
       -- we reverse the list of objects so that the first ones put in
       -- the list are the first ones to be drawn
       (res, objects) = runState draws []
   writeIORef drawVar $ reverse objects
-  postRedisplay Nothing
   return res
 
 -- | Draw a polygon with the given colour through the given points.
@@ -121,7 +125,9 @@ drawCircle col cen rad = drawObject (Circle col cen rad)
 
 -- | Convert a 2D vector to an OpenGL 3D vertex.
 vecToVert :: Vec -> GL.Vertex3 GLfloat
-vecToVert (Vec x y) = GL.Vertex3 (realToFrac x) (realToFrac y) 0
+vecToVert v =
+  let (Vec x y) = (v / Vec 400 400) - Vec 1 1
+  in GL.Vertex3 (realToFrac x) (realToFrac y) 0
 
 -- | Do the actual drawing of a circle (approximated by a 20-sided polygon).
 doCircle :: Colour -> Vec -> Scalar -> IO ()
@@ -148,26 +154,30 @@ doDrawObject obj =
         Line col v1 v2 -> color col >> ln col v1 v2
         Circle col cen rad -> doCircle col cen rad
 
--- | The GLUT display callback function.
-display :: IORef (Vector3 GLfloat, GLfloat, GLfloat) -> RenderData -> DisplayCallback
-display scaleVar (RenderData drawVar) = do
+-- | The function to actually do the displaying
+-- display :: IORef (Vector3 GLfloat, GLfloat, GLfloat) -> RenderData -> IO ()
+drawRender :: RenderData -> IO ()
+drawRender (RenderData win drawVar) = do
   clearColor $= Color4 0.1 0.05 0.05 (1 :: GLclampf)
   clear [ ColorBuffer ]
   loadIdentity
-  (offset, sx, sy) <- readIORef scaleVar
-  scale sx sy 0
-  translate offset
+  -- (offset, sx, sy) <- readIORef scaleVar
+  -- scale sx sy 0
+  -- translate offset
+  -- translate (Vector3 (-1 :: GLfloat) (-1) 0)
+  -- scale 0.01 0.01 (0 :: GLfloat)
   objects <- readIORef drawVar
   mapM_ doDrawObject objects
+  GL.swapBuffers win
   flush
 
 -- | The GLUT reshape callback function.
-reshape :: Vec -> IORef (Vector3 GLfloat, GLfloat, GLfloat) -> ReshapeCallback
-reshape (Vec tw th) scaleVar (Size width height) = do
-  let offset = Vector3 (-realToFrac tw / 2) (-realToFrac th / 2) (0 :: GLfloat)
-      (sx, sy) = (realToFrac $ 2 / tw, realToFrac $ 2 / th) :: (GLfloat, GLfloat)
-  writeIORef scaleVar (offset, sx, -sy)
-  viewport $= (Position 0 0, Size (round tw) (round th))
+-- reshape :: Vec -> IORef (Vector3 GLfloat, GLfloat, GLfloat) -> ReshapeCallback
+-- reshape (Vec tw th) scaleVar (Size width height) = do
+--   let offset = Vector3 (-realToFrac tw / 2) (-realToFrac th / 2) (0 :: GLfloat)
+--       (sx, sy) = (realToFrac $ 2 / tw, realToFrac $ 2 / th) :: (GLfloat, GLfloat)
+--   writeIORef scaleVar (offset, sx, -sy)
+--   viewport $= (Position 0 0, Size (round tw) (round th))
 
 -------------------------------------
 --  BASICS
@@ -176,16 +186,21 @@ reshape (Vec tw th) scaleVar (Size width height) = do
 -- | Make a window to draw in.
 startRender :: String -> Int -> Int -> IO RenderData
 startRender windowName width height = do
-  _ <- getArgsAndInitialize
-  win <- createWindow windowName
+  GL.init
+  (Just w) <- createWindow (fromIntegral width) (fromIntegral height) windowName Nothing Nothing
+  makeContextCurrent (Just w)
+
+  -- Hack for retina displays
+  (szx, szy) <- getFramebufferSize w
+  viewport $= (Position 0 0, Size (fromIntegral szx) (fromIntegral szy))
+
+  -- Set up rendering
   drawVar <- newIORef []
-  scaleVar <- newIORef (Vector3 0 0 0, 1, 1)
-  let render = RenderData drawVar
-  displayCallback $= display scaleVar render
-  reshapeCallback $= Just (reshape (Vec (fromIntegral width) (fromIntegral height)) scaleVar)
-  windowSize $= Size (fromIntegral width) (fromIntegral height)
+  let render = RenderData w drawVar
   return render
 
 -- | Get the number of milliseconds that have passed since initialisation.
 getTicks :: IO Int
-getTicks = GL.get elapsedTime
+getTicks = do
+  Just time <- getTime
+  return . round $ time * 1000

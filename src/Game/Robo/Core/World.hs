@@ -207,10 +207,10 @@ worldMain = do
                               || col^.bcolVictim    == bid
 
     -- kill the threads running dead bots
-    let maybeDo action marg = case marg of
-          Just arg -> action arg
-          Nothing -> return ()
-    liftIO $ mapM_ (maybeDo killThread . view botTID) deadBots
+    -- let maybeDo action marg = case marg of
+    --       Just arg -> action arg
+    --       Nothing -> return ()
+    -- liftIO $ mapM_ (maybeDo killThread . view botTID) deadBots
 
     -- tell the bots to update themselves
     worldState <- get
@@ -241,7 +241,7 @@ worldKbd '-' = promoteContext $ modifySPS (subtract 10)
 worldKbd '=' = do
   sps <- asks (view ruleDefaultSPS)
   promoteContext $ setSPS sps
-worldKbd _ = return ()
+worldKbd k = return ()
 
 -- | Initialise the game.
 worldInit ∷ [BotSpec] → IOWorld ()

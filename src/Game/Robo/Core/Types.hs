@@ -48,6 +48,7 @@ import Lens.Family2
 
 import Control.DeepSeq
 import Control.Concurrent
+import Control.Monad.Free
 
 import Game.Robo.Render
 import Game.Robo.Core.Types.Maths
@@ -123,9 +124,13 @@ data Rules = Rules
 --  Monads
 ---------------------------------
 
+---------------------------------
+--  THE MONAD
+---------------------------------
+
 -- | The monad in which robots run. Parametrised by user state.
 newtype Robo s a = Robo (StateT s BotWrapper a)
-  deriving (Monad, Functor, Applicative, MonadRandom)
+  deriving (Monad, Functor, Applicative, MonadRandom, MonadState s)
 
 -- | Wraps the Bot monad so that we can have a different StateT for user state.
 newtype BotWrapper a = BotWrapper { runBotWrapper :: Bot a }
@@ -326,10 +331,6 @@ data BotResponse = BotResponse
 ---------------------------------
 --  Instances
 ---------------------------------
-
-instance MonadState s (Robo s) where
-  get = Robo get
-  put s = Robo (put s)
 
 instance NFData Bullet where
   rnf bul = rnf (_bulVel bul)

@@ -9,8 +9,9 @@ Portability : non-portable
 
 -}
 
-{-# LANGUAGE Trustworthy #-} -- Enables compilation of robot files with Safe Haskell.
-{-# LANGUAGE RankNTypes  #-} -- Required for lens function type signatures.
+{-# LANGUAGE Trustworthy #-} -- Enables compilation of robot files with Safe Haskell
+{-# LANGUAGE RankNTypes  #-} -- Required for lens function type signatures
+{-# LANGUAGE GeneralizedNewtypeDeriving #-} -- For deriving Robo instances
 
 module Game.Robo
   (
@@ -148,26 +149,33 @@ setThrust = setBotCapped ruleMaxThrust botThrust
 -- | Set the turning power in the clockwise direction (or anticlockwise if negative)
 -- Limited by game rules.
 setTurnPower :: Scalar -> Robo s ()
-setTurnPower = setBotCapped ruleMaxAngThrust botAngThrust
+setTurnPower =
+  setBotCapped ruleMaxAngThrust botAngThrust
 
 -- | Set the turning power of the gun (positive is clockwise).
 setGunTurnPower :: Scalar -> Robo s ()
-setGunTurnPower = setBotCapped ruleMaxGunTurnPower (botGun.gunAngAcc)
+setGunTurnPower =
+  setBotCapped ruleMaxGunTurnPower
+               (botGun . gunAngAcc)
 
 -- | Set the firing power of the gun, where @0@ means don't fire. Limited by game rules.
 setFiring :: Scalar -> Robo s ()
-setFiring power = withBot $ do
-  min <- asks (view ruleMinFirePower)
-  max <- asks (view ruleMaxFirePower)
-  case () of
-    () | power < 0 -> botGun.gunFiring .= 0
-       | power > 0 && power < min -> botGun.gunFiring .= min
-       | power > max -> botGun.gunFiring .= max
-       | otherwise -> botGun.gunFiring .= power
+setFiring power =
+  withBot $
+  do min <- asks (view ruleMinFirePower)
+     max <- asks (view ruleMaxFirePower)
+     case () of
+       ()
+         | power < 0 -> botGun . gunFiring .= 0
+         | power > 0 && power < min -> botGun . gunFiring .= min
+         | power > max -> botGun . gunFiring .= max
+         | otherwise -> botGun . gunFiring .= power
 
 -- | Set the rotation speed of the radar (positive is clockwise).
 setRadarSpeed :: Scalar -> Robo s ()
-setRadarSpeed = setBotCapped ruleMaxRadSpeed (botRadar.radAngVel)
+setRadarSpeed =
+  setBotCapped ruleMaxRadSpeed
+               (botRadar . radAngVel)
 
 ---------------------------------
 --  LOGGING
@@ -191,10 +199,15 @@ withBot bot = Robo (lift (BotWrapper bot))
 useBot :: FoldLike a BotState a' a b' -> Robo s a
 useBot = withBot . use
 
-setBotCapped :: (Num a, Ord a) => Getter' Rules a -> Setter' BotState a -> a -> Robo s ()
-setBotCapped capBy setter val = withBot (setCapped capBy setter val)
+setBotCapped
+  :: (Num a,Ord a)
+  => Getter' Rules a -> Setter' BotState a -> a -> Robo s ()
+setBotCapped capBy setter val =
+  withBot (setCapped capBy setter val)
 
-setCapped :: (Num a, Ord a) => Getter' Rules a -> Setter' BotState a -> a -> Bot ()
+setCapped
+  :: (Num a,Ord a)
+  => Getter' Rules a -> Setter' BotState a -> a -> Bot ()
 setCapped capBy setter val = do
   limit <- asks (view capBy)
   case () of
