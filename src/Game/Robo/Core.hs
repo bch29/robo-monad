@@ -62,7 +62,7 @@ applyBot bid bot = do
 
 -- | Evaluate many Bot monadic actions in the context of their world.
 -- Much more efficient than running applyBot for every Bot.
-applyBots :: Monad m => [(BotID, ContextT BotState m a)] -> ContextT WorldState m [a]
+applyBots :: (Monad m, Functor m) => [(BotID, ContextT BotState m a)] -> ContextT WorldState m [a]
 applyBots bots = do
   botStates <- use wldBots
   let initialArr = listArray (1, length botStates) botStates
@@ -76,7 +76,7 @@ applyBots bots = do
   return res
 
 -- | Evaluate each given Bot action for each robot in the world in turn.
-applyAllBots :: Monad m => [ContextT BotState m a] -> ContextT WorldState m [a]
+applyAllBots :: (Monad m, Functor m) => [ContextT BotState m a] -> ContextT WorldState m [a]
 applyAllBots bots = do
   botStates <- use wldBots
   let runfun action st = lift $ runStateT action st
