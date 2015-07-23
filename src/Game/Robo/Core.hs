@@ -44,6 +44,7 @@ import Control.Monad.Reader
 import Control.Monad.Writer.Strict
 import Control.Monad.State.Strict
 import Control.Monad.Random
+import Control.Applicative
 
 import Game.Robo.Core.Types as X
 import Game.Robo.Core.Rules as X
