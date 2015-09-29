@@ -33,17 +33,13 @@ module Game.Robo
   , setRadarSpeed
 
   -- * Printing
-  , printLine, printShow
+  , logLine, logShow
 
   -- * Rules
   , Rules (..)
 
   -- * Event data
   , ScanData (..), WallCollisionData (..)
-
-  -- * Random number generation
-  , getRandom, getRandomR
-
 
   -- try to put all the lens stuff, etc, at the end
   -- so it doesn't get in the way of documentation
@@ -56,23 +52,22 @@ module Game.Robo
   -- * Misc
   , module Misc
   , module Lens
-  )
-    where
+  ) where
 
 import Lens.Family2       as Lens
 import Lens.Family2.TH    as Lens
 import Lens.Family2.State as Lens
 
-import Control.Applicative
-import Control.Monad.Writer
-import Control.Monad.Reader
-import Control.Monad.Random
+import Control.Monad.Free
+import Control.Monad.State
 
 import Control.Monad.Reader.Class as Misc
 import Control.Monad.State.Class  as Misc
+import Control.Monad.Random.Class as Misc
 
 import Game.Robo.Maths
-import Game.Robo.Core
+import Game.Robo.Core.Types
+import Game.Robo.Core.Lenses
 import Game.Robo.Core.World
 import Game.Robo.Core.Rules       as Rules
 import Game.Robo.Core.Types.Maths as MTypes
@@ -81,17 +76,21 @@ import Game.Robo.Core.Types.Maths as MTypes
 --  ACCESSORS
 ---------------------------------
 
+-- | Get the rules object.
+rules :: Robo s Rules
+rules = (Robo . liftF . RulesR) id
+
 -- | Get the value of a rule from its lens.
 getRule :: Getter' Rules a -> Robo s a
-getRule rule = withBot $ asks (view rule)
+getRule rule = fmap (view rule) rules
 
 -- | Get the robot's current position in pixels relative to the bottom-left corner.
 getPosition :: Robo s Vec
-getPosition = useBot botPos
+getPosition = useI botPos
 
 -- | Get the direction in which the robot is facing.
 getHeading :: Robo s Angle
-getHeading = useBot botHeading
+getHeading = useI botHeading
 
 -- | Get the direction in which the robot is facing as a normalised vector.
 getHeadingVec :: Robo s Vec
@@ -99,43 +98,43 @@ getHeadingVec = angleAsVec getHeading
 
 -- | Get the robot's current forward (or backward if negative) speed.
 getSpeed :: Robo s Scalar
-getSpeed = useBot botSpeed
+getSpeed = useI botSpeed
 
 -- | Get the robot's current angular velocity.
 getAngVel :: Robo s Scalar
-getAngVel = useBot botAngVel
+getAngVel = useI botAngVel
 
 -- | Get the direction in which the robot's gun is facing relative to the robot.
 getGunRelHeading :: Robo s Angle
-getGunRelHeading = useBot (botGun.gunHeading)
+getGunRelHeading = useI (botGun.gunHeading)
 
 -- | Get the absolute direction in which the robot's gun is facing.
 getGunAbsHeading :: Robo s Angle
 getGunAbsHeading = do
   botHeading <- getHeading
   gunHeading <- getGunRelHeading
-  return $ botHeading + gunHeading
+  return (botHeading + gunHeading)
 
 -- | Get the direction in which the robot's radar is facing relative to the robot.
 getRadarRelHeading :: Robo s Angle
-getRadarRelHeading = useBot (botRadar.radHeading)
+getRadarRelHeading = useI (botRadar.radHeading)
 
 -- | Get the absolute direction in which the robot's radar is facing.
 getRadarAbsHeading :: Robo s Angle
 getRadarAbsHeading = do
   botHeading <- getHeading
   radarHeading <- getRadarRelHeading
-  return $ botHeading + radarHeading
+  return (botHeading + radarHeading)
 
 -- | Get the robot's current available energy. See '_ruleMaxEnergy' and
 -- '_ruleEnergyRechargeRate'.
 getEnergy :: Robo s Scalar
-getEnergy = useBot botEnergy
+getEnergy = useI botEnergy
 
 -- | Utility function to convert an angle accessor to one that returns a vector
 -- in the direction of the angle instead.
 angleAsVec :: Robo s Angle -> Robo s Vec
-angleAsVec = (vecFromAngle <$>)
+angleAsVec = fmap vecFromAngle
 
 ---------------------------------
 --  CONTROL
@@ -144,73 +143,80 @@ angleAsVec = (vecFromAngle <$>)
 -- | Set the engine thrust, which controls the robot's forward (or backward if negative)
 -- acceleration.  Limited by game rules.
 setThrust :: Scalar -> Robo s ()
-setThrust = setBotCapped ruleMaxThrust botThrust
+setThrust = setICapped ruleMaxThrust botThrust
 
 -- | Set the turning power in the clockwise direction (or anticlockwise if negative)
 -- Limited by game rules.
 setTurnPower :: Scalar -> Robo s ()
 setTurnPower =
-  setBotCapped ruleMaxAngThrust botAngThrust
+  setICapped ruleMaxAngThrust botAngThrust
 
 -- | Set the turning power of the gun (positive is clockwise).
 setGunTurnPower :: Scalar -> Robo s ()
 setGunTurnPower =
-  setBotCapped ruleMaxGunTurnPower
-               (botGun . gunAngAcc)
+  setICapped ruleMaxGunTurnPower
+             (botGun . gunAngAcc)
 
 -- | Set the firing power of the gun, where @0@ means don't fire. Limited by game rules.
 setFiring :: Scalar -> Robo s ()
-setFiring power =
-  withBot $
-  do min <- asks (view ruleMinFirePower)
-     max <- asks (view ruleMaxFirePower)
-     case () of
-       ()
-         | power < 0 -> botGun . gunFiring .= 0
-         | power > 0 && power < min -> botGun . gunFiring .= min
-         | power > max -> botGun . gunFiring .= max
-         | otherwise -> botGun . gunFiring .= power
+setFiring power = do
+  min <- getRule ruleMinFirePower
+  max <- getRule ruleMaxFirePower
+  case () of
+    _ | power < 0                -> setIL (botGun.gunFiring) 0
+      | power > 0 && power < min -> setIL (botGun.gunFiring) min
+      | power > max              -> setIL (botGun.gunFiring) max
+      | otherwise                -> setIL (botGun.gunFiring) power
 
 -- | Set the rotation speed of the radar (positive is clockwise).
 setRadarSpeed :: Scalar -> Robo s ()
 setRadarSpeed =
-  setBotCapped ruleMaxRadSpeed
-               (botRadar . radAngVel)
+  setICapped ruleMaxRadSpeed
+             (botRadar . radAngVel)
 
 ---------------------------------
 --  LOGGING
 ---------------------------------
 
--- | Print a string to the robot's console.
-printLine :: String -> Robo s ()
-printLine message = withBot (tell [message])
+-- | Log something to the robot's console.
+logMessage :: String -> Robo s ()
+logMessage message = Robo (liftF (LogR message ()))
 
--- | Show something and print the resulting string to the robot's console.
-printShow :: Show a => a -> Robo s ()
-printShow = printLine . show
+-- | Log a line to the robot's console.
+logLine :: String -> Robo s ()
+logLine message = do
+  logMessage message
+  logMessage "\n"
+
+-- | Show something log it as a line to the robot's console.
+logShow :: Show a => a -> Robo s ()
+logShow = logLine . show
 
 ---------------------------------
 --  UTILITY FUNCTIONS
 ---------------------------------
 
-withBot :: Bot a -> Robo s a
-withBot bot = Robo (lift (BotWrapper bot))
-
-useBot :: FoldLike a BotState a' a b' -> Robo s a
-useBot = withBot . use
-
-setBotCapped
+setICapped
   :: (Num a,Ord a)
   => Getter' Rules a -> Setter' BotState a -> a -> Robo s ()
-setBotCapped capBy setter val =
-  withBot (setCapped capBy setter val)
-
-setCapped
-  :: (Num a,Ord a)
-  => Getter' Rules a -> Setter' BotState a -> a -> Bot ()
-setCapped capBy setter val = do
-  limit <- asks (view capBy)
+setICapped capBy setter val = do
+  limit <- fmap (view capBy) rules
   case () of
-    () | val > limit  -> setter .= limit
-       | val < -limit -> setter .= -limit
-       | otherwise    -> setter .= val
+    () | val > limit  -> setIL setter limit
+       | val < -limit -> setIL setter (-limit)
+       | otherwise    -> setIL setter (val)
+
+getI :: Robo s BotState
+getI = (Robo . liftF . GetIStateR) id
+
+setI :: BotState -> Robo s ()
+setI newState = (Robo . liftF) (PutIStateR newState ())
+
+useI :: FoldLike a BotState a' a b' -> Robo s a
+useI l = fmap (view l) getI
+
+setIL :: Setter' BotState a -> a -> Robo s ()
+setIL setter a = overI (set setter a)
+
+overI :: (BotState -> BotState) -> Robo s ()
+overI f = getI >>= setI . f

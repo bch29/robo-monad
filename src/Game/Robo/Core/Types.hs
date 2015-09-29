@@ -14,11 +14,14 @@ These are defined in their own file to avoid module import cycles.
 {-# LANGUAGE GeneralizedNewtypeDeriving #-} -- For easy newtype wrapping
 {-# LANGUAGE MultiParamTypeClasses      #-} -- For MonadState instance of @Robo s@
 {-# LANGUAGE FlexibleInstances          #-} -- For MonadState instance of @Robo s@
+{-# LANGUAGE GADTs                      #-} -- For the @RoboF@ GADT
+{-# LANGUAGE DeriveFunctor              #-} -- For Functor instance of @RoboF s@
+{-# LANGUAGE StandaloneDeriving         #-} -- For Functor instance of @RoboF s@
 
 module Game.Robo.Core.Types
   ( Rules (..)
 
-  , Robo  (..), BotWrapper (..)
+  , Robo (..), RoboF (..)
   , Bot, IOBot, DrawBot
   , World, IOWorld, DrawWorld
   , PureContext, DrawContext, ContextT
@@ -128,13 +131,26 @@ data Rules = Rules
 --  THE MONAD
 ---------------------------------
 
--- | The monad in which robots run. Parametrised by user state.
-newtype Robo s a = Robo (StateT s BotWrapper a)
-  deriving (Monad, Functor, Applicative, MonadRandom, MonadState s)
+-- | The main Robo Monad. Parametrised by user state.
+newtype Robo s a = Robo (Free (RoboF s) a)
+  deriving ( Functor
+           , Applicative
+           , Monad)
 
--- | Wraps the Bot monad so that we can have a different StateT for user state.
-newtype BotWrapper a = BotWrapper { runBotWrapper :: Bot a }
-  deriving (Monad, Functor, Applicative, MonadRandom)
+-- | The functor used for the free monad representation of robots.
+data RoboF s a where
+  GetUStateR :: (s -> a)                         -> RoboF s a
+  PutUStateR :: s -> a                           -> RoboF s a
+  GetIStateR :: (BotState -> a)                  -> RoboF s a
+  PutIStateR :: BotState -> a                    -> RoboF s a
+  RulesR     :: (Rules -> a)                     -> RoboF s a
+  LogR       :: String -> a                      -> RoboF s a
+  RandVR     :: Random r => (r -> a)             -> RoboF s a
+  RandsVR    :: Random r => ([r] -> a)           -> RoboF s a
+  RandIR     :: Random r => (r, r) -> (r -> a)   -> RoboF s a
+  RandsIR    :: Random r => (r, r) -> ([r] -> a) -> RoboF s a
+
+deriving instance Functor (RoboF s)
 
 -- | The internal robot monad.
 type Bot = PureContext BotState
@@ -165,7 +181,7 @@ type DrawContext s = ContextT s (RandT StdGen Draw)
 -- random number generation. We don't use RWS because we want StateT as
 -- the outer layer so that we can easily strip off a BotState and replace
 -- it with a WorldState to 'promote' Bot to World.
-type ContextT s m = StateT s (WriterT [String] (ReaderT Rules m))
+type ContextT s m = StateT s (WriterT String (ReaderT Rules m))
 
 ---------------------------------
 --  Main Game Engine
@@ -341,3 +357,17 @@ instance NFData BotState where
 
 instance NFData WorldState where
   rnf wld = wld `seq` ()
+
+-- We choose to instantiate 'MonadState' for the user state rather than the
+-- internal state because the latter is not too sorely needed here and this way
+-- we don't need to add a newtype wrapper over 'Robo' to allow the user to use
+-- 'MonadState' functions, and the user can't access our internal state.
+instance MonadState s (Robo s) where
+  get = (Robo . liftF . GetUStateR) id
+  put s = (Robo . liftF) (PutUStateR s ())
+
+instance MonadRandom (Robo s) where
+  getRandom         = (Robo . liftF . RandVR)        id
+  getRandomR range  = (Robo . liftF . RandIR range)  id
+  getRandoms        = (Robo . liftF . RandsVR)       id
+  getRandomRs range = (Robo . liftF . RandsIR range) id

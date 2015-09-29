@@ -243,7 +243,7 @@ botMain spec updateChan responseChan =
         ((_, userState1), lg) <- listen . promoteContext $ runRobo onInit' initialState
         state' <- get
 
-        liftIO $ putStr (unlines lg)
+        liftIO $ putStr lg
 
         -- send the initialisation results back to the main thread
         bid <- use botID

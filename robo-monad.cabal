@@ -59,6 +59,7 @@ library
                 , lens-family-th
                 , mtl
                 , random
+                , free
   hs-source-dirs:      src
   default-language:    Haskell2010
   other-extensions:    TemplateHaskell, GeneralizedNewtypeDeriving

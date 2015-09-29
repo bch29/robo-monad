@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-|
 Module      : Crazy
 Description : A robot that moves around randomly and bounces off walls.

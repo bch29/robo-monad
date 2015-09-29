@@ -40,6 +40,8 @@ import Lens.Family2.State
 import Control.DeepSeq
 import Control.Exception
 
+import Control.Monad.Free
+import Control.Monad.Free.Church
 import Control.Monad.Reader
 import Control.Monad.Writer.Strict
 import Control.Monad.State.Strict
@@ -99,19 +101,58 @@ botsFindM action = do
   wldBots .= newStates
   return res
 
+-- data RoboF s next
+--   = GetUStateR (s -> next)
+--   | PutUStateR s next
+--   | GetIStateR (BotState -> next)
+--   | PutIStateR BotState next
+--   | RulesR (Rules -> next)
+--   | LogR String next
+--   deriving (Functor)
+
 -- | Evaluate a Robo down to its underlying Bot monad.
 runRobo :: Robo s a -> s -> Bot (a, s)
-runRobo (Robo ctrl) s = runBotWrapper (runStateT ctrl s)
+runRobo (Robo free) s =
+  case free of
+    Pure x -> return (x, s)
+    Free (GetUStateR f) ->
+      runRobo (Robo $ f s) s
+    Free (PutUStateR s next) ->
+      runRobo (Robo next) s
+    Free (GetIStateR f) -> do
+      bs <- get
+      runRobo (Robo $ f bs) s
+    Free (PutIStateR bs next) -> do
+      put bs
+      runRobo (Robo next) s
+    Free (RulesR f) -> do
+      rules <- ask
+      runRobo (Robo $ f rules) s
+    Free (LogR msg next) -> do
+      tell msg
+      runRobo (Robo next) s
+    Free (RandVR f) -> do
+      r <- getRandom
+      runRobo (Robo $ f r) s
+    Free (RandIR range f) -> do
+      r <- getRandomR range
+      runRobo (Robo $ f r) s
+    Free (RandsVR f) -> do
+      rs <- getRandoms
+      runRobo (Robo $ f rs) s
+    Free (RandsIR range f) -> do
+      rs <- getRandomRs range
+      runRobo (Robo $ f rs) s
 
 -- | Runs an action in a stateful context, returning the resulting state,
 -- random number generator and message log along with the result of the action.
-runPureContext :: PureContext s a -> StdGen -> Rules -> s -> (a, s, [String], StdGen)
+runPureContext :: PureContext s a -> StdGen -> Rules -> s -> (a, s, String, StdGen)
 runPureContext ctx gen rules st = (res, st', lg, gen')
   where noCtx = runContext ctx rules st
         ((res, st', lg), gen') = runRand noCtx gen
 
 -- | Runs a contextual action, returning the results, state and message log.
-runContext :: Monad m => ContextT s m a -> Rules -> s -> m (a, s, [String])
+runContext :: Monad m => ContextT s m a -> Rules -> s -> m (a, s, String)
 runContext ctx rules st = do
   let noState = runStateT ctx st
       noWriter = runWriterT noState
@@ -168,7 +209,7 @@ iterateContext val1 ctxf = do
 
   let loop st val = do
         (mval, st', lg) <- runContext (ctxf val) rules st
-        putStr (unlines lg)
+        putStr lg
         evaluate (rnf st')
         case mval of
           Just val' -> loop st' val'
@@ -181,7 +222,7 @@ runAction :: NFData s => Rules -> IORef s -> ContextT s IO () -> IO ()
 runAction rules ref action = do
   st <- readIORef ref
   (_, st', lg) <- runContext action rules st
-  putStr (unlines lg)
+  putStr lg
   evaluate (rnf st')
   writeIORef ref st'
 
