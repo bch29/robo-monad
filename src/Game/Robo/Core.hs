@@ -32,21 +32,20 @@ module Game.Robo.Core
 
 import Graphics.UI.GLFW
 import Data.IORef
-import Data.Array
+import Data.Array hiding (range)
 import Data.Maybe (fromMaybe)
 
-import Lens.Family2.State
+import Lens.Micro.Platform
 
 import Control.DeepSeq
 import Control.Exception
 
 import Control.Monad.Free
-import Control.Monad.Free.Church
+
 import Control.Monad.Reader
 import Control.Monad.Writer.Strict
 import Control.Monad.State.Strict
-import Control.Monad.Random
-import Control.Applicative
+import Control.Monad.Random hiding (next)
 
 import Game.Robo.Core.Types as X
 import Game.Robo.Core.Rules as X
@@ -117,8 +116,8 @@ runRobo (Robo free) s =
     Pure x -> return (x, s)
     Free (GetUStateR f) ->
       runRobo (Robo $ f s) s
-    Free (PutUStateR s next) ->
-      runRobo (Robo next) s
+    Free (PutUStateR s' next) ->
+      runRobo (Robo next) s'
     Free (GetIStateR f) -> do
       bs <- get
       runRobo (Robo $ f bs) s
@@ -227,6 +226,7 @@ runAction rules ref action = do
   writeIORef ref st'
 
 -- | An initial, empty set of game actions.
+gameActions :: GameActions s
 gameActions = GameActions
   { actionInit     = Nothing
   , actionMain     = Nothing

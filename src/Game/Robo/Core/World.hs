@@ -15,23 +15,16 @@ Portability : non-portable
 
 module Game.Robo.Core.World (runWorld) where
 
-import           Lens.Family2
-import           Lens.Family2.State
+import           Lens.Micro.Platform
 
 import           Control.Concurrent
 
-import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.Random
 import           Control.Monad.Reader
 import           Control.Monad.State
-import           Control.Monad.Writer
-import           Data.Traversable       (traverse)
-
-import           Control.DeepSeq
 
 import           Data.Array.IO
-import           Data.Array.MArray
 
 import           Data.Either
 import           Data.List
@@ -44,7 +37,7 @@ import           Game.Robo.Render.World
 
 -- | Move a bullet along.
 updateBullet ∷ Double → Bullet → Bullet
-updateBullet passed bul = bul & bulPos +~ (bul^.bulVel) |* passed
+updateBullet passed bul = bul & bulPos %~ (+ (bul^.bulVel) |* passed)
 
 -- | Check if a bullet is within the bounds of the arena.
 isBulletInArena ∷ Vec → Bullet → Bool
@@ -63,21 +56,11 @@ stepBullets passed = do
   let bullets' = filter (isBulletInArena size) . map (updateBullet passed) $ bullets
   wldBullets .= bullets'
 
--- | Splits a list of values into those satisfying a monadic predicate, and those not.
-partitionM ∷ Monad m ⇒ (a → m Bool) → [a] → m ([a], [a])
-partitionM _ [] = return ([], [])
-partitionM f (x:xs) = do
-  res <- f x
-  (as, bs) <- partitionM f xs
-  -- abuse of list comprehension!
-  return ([x | res] ++ as, [x | not res] ++ bs)
-
 -- | Handles all bullet collisions, removing colliding bullets and returning
 -- collision data.
 handleBulletCollisions ∷ World [BulletCollision]
 handleBulletCollisions = do
     -- get the list of all bot IDs
-    bids <- gets $ toListOf (wldBots.traverse.botID)
     bullets <- use wldBullets
     let bulletCheck bul = do
           -- find the first bot that the bullet is colliding with
@@ -241,7 +224,7 @@ worldKbd '-' = promoteContext $ modifySPS (subtract 10)
 worldKbd '=' = do
   sps <- asks (view ruleDefaultSPS)
   promoteContext $ setSPS sps
-worldKbd k = return ()
+worldKbd _ = return ()
 
 -- | Initialise the game.
 worldInit ∷ [BotSpec] → IOWorld ()

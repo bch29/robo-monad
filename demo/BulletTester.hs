@@ -18,12 +18,7 @@ module BulletTester (bullettester) where
 -- provide handy utility functions.
 import Game.Robo
 import Game.Robo.Maths
-import Game.Robo.Extra
 import Game.Robo.PID.Lensed
-
-import Data.List
-import Data.Ord
-import Control.Applicative
 
 -- | Provides a handy alias for this robot's Robo monad.
 type BulletTester = Robo BulletTesterState

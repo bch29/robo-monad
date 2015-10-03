@@ -1,6 +1,6 @@
 {-|
 Module      : Game.Robo
-Description : The main module you need to import to make your own robots.
+Description : The main module that needs to be imported in order to define robots.
 Copyright   : (c) Bradley Hardy, 2015
 License     : GPL3
 Maintainer  : bradleyhardy@live.com
@@ -11,7 +11,6 @@ Portability : non-portable
 
 {-# LANGUAGE Trustworthy #-} -- Enables compilation of robot files with Safe Haskell
 {-# LANGUAGE RankNTypes  #-} -- Required for lens function type signatures
-{-# LANGUAGE GeneralizedNewtypeDeriving #-} -- For deriving Robo instances
 
 module Game.Robo
   (
@@ -54,9 +53,7 @@ module Game.Robo
   , module Lens
   ) where
 
-import Lens.Family2       as Lens
-import Lens.Family2.TH    as Lens
-import Lens.Family2.State as Lens
+import Lens.Micro.Platform as Lens
 
 import Control.Monad.Free
 import Control.Monad.State
@@ -81,7 +78,7 @@ rules :: Robo s Rules
 rules = (Robo . liftF . RulesR) id
 
 -- | Get the value of a rule from its lens.
-getRule :: Getter' Rules a -> Robo s a
+getRule :: Getter Rules a -> Robo s a
 getRule rule = fmap (view rule) rules
 
 -- | Get the robot's current position in pixels relative to the bottom-left corner.
@@ -111,9 +108,9 @@ getGunRelHeading = useI (botGun.gunHeading)
 -- | Get the absolute direction in which the robot's gun is facing.
 getGunAbsHeading :: Robo s Angle
 getGunAbsHeading = do
-  botHeading <- getHeading
-  gunHeading <- getGunRelHeading
-  return (botHeading + gunHeading)
+  theBotHeading <- getHeading
+  theGunHeading <- getGunRelHeading
+  return (theBotHeading + theGunHeading)
 
 -- | Get the direction in which the robot's radar is facing relative to the robot.
 getRadarRelHeading :: Robo s Angle
@@ -122,9 +119,9 @@ getRadarRelHeading = useI (botRadar.radHeading)
 -- | Get the absolute direction in which the robot's radar is facing.
 getRadarAbsHeading :: Robo s Angle
 getRadarAbsHeading = do
-  botHeading <- getHeading
+  theBotHeading <- getHeading
   radarHeading <- getRadarRelHeading
-  return (botHeading + radarHeading)
+  return (theBotHeading + radarHeading)
 
 -- | Get the robot's current available energy. See '_ruleMaxEnergy' and
 -- '_ruleEnergyRechargeRate'.
@@ -160,13 +157,13 @@ setGunTurnPower =
 -- | Set the firing power of the gun, where @0@ means don't fire. Limited by game rules.
 setFiring :: Scalar -> Robo s ()
 setFiring power = do
-  min <- getRule ruleMinFirePower
-  max <- getRule ruleMaxFirePower
+  minP <- getRule ruleMinFirePower
+  maxP <- getRule ruleMaxFirePower
   case () of
-    _ | power < 0                -> setIL (botGun.gunFiring) 0
-      | power > 0 && power < min -> setIL (botGun.gunFiring) min
-      | power > max              -> setIL (botGun.gunFiring) max
-      | otherwise                -> setIL (botGun.gunFiring) power
+    _ | power < 0                 -> setIL (botGun.gunFiring) 0
+      | power > 0 && power < minP -> setIL (botGun.gunFiring) minP
+      | power > maxP              -> setIL (botGun.gunFiring) maxP
+      | otherwise                 -> setIL (botGun.gunFiring) power
 
 -- | Set the rotation speed of the radar (positive is clockwise).
 setRadarSpeed :: Scalar -> Robo s ()
@@ -196,15 +193,19 @@ logShow = logLine . show
 --  UTILITY FUNCTIONS
 ---------------------------------
 
+-- setICapped
+--   :: (Num a,Ord a)
+--   => Getter' Rules a -> Setter' BotState a -> a -> Robo s ()
 setICapped
-  :: (Num a,Ord a)
-  => Getter' Rules a -> Setter' BotState a -> a -> Robo s ()
+  :: (Num b, Ord b) =>
+     Getting b Rules b
+     -> ASetter BotState BotState a b -> b -> Robo s ()
 setICapped capBy setter val = do
   limit <- fmap (view capBy) rules
   case () of
     () | val > limit  -> setIL setter limit
        | val < -limit -> setIL setter (-limit)
-       | otherwise    -> setIL setter (val)
+       | otherwise    -> setIL setter val
 
 getI :: Robo s BotState
 getI = (Robo . liftF . GetIStateR) id
@@ -212,10 +213,10 @@ getI = (Robo . liftF . GetIStateR) id
 setI :: BotState -> Robo s ()
 setI newState = (Robo . liftF) (PutIStateR newState ())
 
-useI :: FoldLike a BotState a' a b' -> Robo s a
+useI :: Getting b BotState b -> Robo s b
 useI l = fmap (view l) getI
 
-setIL :: Setter' BotState a -> a -> Robo s ()
+setIL :: ASetter BotState BotState a b -> b -> Robo s ()
 setIL setter a = overI (set setter a)
 
 overI :: (BotState -> BotState) -> Robo s ()

@@ -42,7 +42,7 @@ module Game.Robo.Maths
   ) where
 
 import           Game.Robo.Core.Types.Maths
-import           Lens.Family2
+import           Lens.Micro.Platform
 
 -----------------------------------
 -- VECTORS

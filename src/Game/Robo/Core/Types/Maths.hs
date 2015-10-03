@@ -16,7 +16,7 @@ for the same reason.
 
 module Game.Robo.Core.Types.Maths where
 
-import Lens.Family2.TH
+import Lens.Micro.Platform
 import Control.DeepSeq
 import Control.Monad.Random
 

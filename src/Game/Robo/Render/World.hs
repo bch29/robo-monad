@@ -11,8 +11,7 @@ Portability : non-portable
 
 module Game.Robo.Render.World where
 
-import Lens.Family2
-import Lens.Family2.State
+import Lens.Micro.Platform
 
 import Control.Monad.Reader
 

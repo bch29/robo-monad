@@ -7,17 +7,12 @@ Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable
 
-
 -}
-
-{-# LANGUAGE Trustworthy #-} -- Enables compilation of robot files with Safe Haskell.
 
 module Game.Robo.Extra
   ( scanWallR, scanWallDirR
   , getWallDistR, getWallDistDirR
   ) where
-
-import Control.Applicative
 
 import Game.Robo
 import Game.Robo.Maths

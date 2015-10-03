@@ -19,7 +19,7 @@ things need updating every time a new rule is added.
 
 module Game.Robo.Core.Rules where
 
-import Lens.Family2.TH
+import Lens.Micro.Platform
 import Game.Robo.Core.Types
 
 makeLenses ''Rules

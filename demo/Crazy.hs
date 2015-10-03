@@ -17,7 +17,6 @@ import Game.Robo.Maths
 import Game.Robo.PID.Lensed
 
 import Control.Monad
-import Control.Applicative
 
 type Crazy = Robo CrazyState
 
@@ -52,7 +51,7 @@ initBot = do
   targetAngle .= ang
 
 run :: Crazy ()
-run = do
+run =
   -- pid controller towards target angle
   do ang  <- getHeading
      tAng <- use targetAngle
@@ -60,16 +59,16 @@ run = do
      setTurnPower =<< use (turningPid.pidOut)
 
 scan :: ScanData -> Crazy ()
-scan (ScanData distance angle) = do
+scan _ =
     -- fire a bullet when we see an enemy
     setFiring 4
 
 myOnHitByBullet :: Crazy ()
-myOnHitByBullet = do
+myOnHitByBullet =
   return ()
 
 myOnBulletHit :: Crazy ()
-myOnBulletHit = do
+myOnBulletHit =
   return ()
 
 chooseAngle :: Angle -> Crazy ()

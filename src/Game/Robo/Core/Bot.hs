@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-|
 Module      : Game.Robo.Core.Bot
@@ -12,12 +13,10 @@ Portability : non-portable
 
 module Game.Robo.Core.Bot where
 
-import           Lens.Family2
-import           Lens.Family2.State
+import           Lens.Micro.Platform
 
 import           Control.Concurrent
 
-import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
@@ -235,12 +234,10 @@ writeLog name = putStr . unlines . map ((name ++ ": ") ++)
 botMain ∷ BotSpec → Chan BotUpdate → Chan BotResponse → IOBot ()
 botMain spec updateChan responseChan =
   case spec of
-    BotSpec name initialState
-      onInit' onTick' onScan'
-      onHitByBullet' onBulletHit' onCollideWall' -> do
+    BotSpec{..} -> do
         -- run the robot's initialisation method, listening to the log so that
         -- we can print it out
-        ((_, userState1), lg) <- listen . promoteContext $ runRobo onInit' initialState
+        ((_, userState1), lg) <- listen . promoteContext $ runRobo onInit botInitialState
         state' <- get
 
         liftIO $ putStr lg
@@ -285,12 +282,12 @@ botMain spec updateChan responseChan =
                 -- run the user callbacks
                 let roboActions = do
                       -- nullary actions
-                      when wasHit    onHitByBullet'
-                      when bulletHit onBulletHit'
-                      when doTick    onTick'
+                      when wasHit    onHitByBullet
+                      when bulletHit onBulletHit
+                      when doTick    onTick
                       -- unary actions
-                      maybe (return ()) onScan'        mscan
-                      maybe (return ()) onCollideWall' mwcol
+                      maybe (return ()) onScan        mscan
+                      maybe (return ()) onCollideWall mwcol
                 (_, userState') <- runRobo roboActions userState
                 return (bullets, userState')
 
@@ -309,5 +306,5 @@ botMain spec updateChan responseChan =
 -- | Run a robot. This never terminates and is designed to be called in its own thread.
 -- Communicates with the World thread via channels.
 runBot ∷ Rules → BotSpec → BotState → Chan BotUpdate → Chan BotResponse → IO ()
-runBot rules spec state updateChan responseChan =
-  evalContext (botMain spec updateChan responseChan) rules state
+runBot rules spec botState updateChan responseChan =
+  evalContext (botMain spec updateChan responseChan) rules botState

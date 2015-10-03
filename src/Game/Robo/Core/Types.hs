@@ -47,7 +47,7 @@ import Control.Monad.Reader
 import Control.Monad.Writer.Strict
 import Control.Monad.Random
 
-import Lens.Family2
+
 
 import Control.DeepSeq
 import Control.Concurrent

@@ -19,10 +19,7 @@ module Game.Robo.PID.Lensed
   , module Game.Robo.PID.Class
   ) where
 
-import Lens.Family2
-import Lens.Family2.TH
-
-import Game.Robo.Maths
+import Lens.Micro.Platform
 
 import Game.Robo.PID.Class
 

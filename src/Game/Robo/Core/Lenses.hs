@@ -17,7 +17,7 @@ we add a new field to a record.
 module Game.Robo.Core.Lenses where
 
 import Game.Robo.Core.Types
-import Lens.Family2.TH
+import Lens.Micro.Platform
 
 makeLenses ''WorldState
 

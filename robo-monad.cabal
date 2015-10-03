@@ -55,8 +55,7 @@ library
                 , base >=4.6 && <5
                 , deepseq
                 , free
-                , lens-family
-                , lens-family-th
+                , microlens-platform
                 , mtl
                 , random
                 , free
@@ -66,3 +65,4 @@ library
   ghc-options:
     -O2
     -threaded
+    -Wall

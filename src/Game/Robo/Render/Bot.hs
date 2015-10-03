@@ -11,15 +11,9 @@ Portability : non-portable
 
 module Game.Robo.Render.Bot where
 
-import Lens.Family2
-import Lens.Family2.State
-import Lens.Family2.Stock
+import Lens.Micro.Platform
 
-import Control.Monad
-import Control.Monad.State
 import Control.Monad.Reader
-import Data.Traversable
-import Control.Applicative ((<$>))
 
 import Game.Robo.Core
 import Game.Robo.Maths
@@ -70,27 +64,26 @@ drawRadar :: DrawBot ()
 drawRadar = do
   box <- radarRect
   pos <- use botPos
-  let [a, b, c, d] = rectCorners box
+  let [a, b, _, _] = rectCorners box
   drawPoly (colour 0xFF 0xFF 0x88) [a, b, pos]
 
 drawLife :: DrawBot ()
 drawLife = do
   life <- use botLife
 
-  max <- asks (view ruleMaxLife)
+  maxL <- asks (view ruleMaxLife)
   off <- asks (view ruleLifebarOffset)
   (Vec maxw h) <- asks (view ruleLifebarSize)
 
   pos <- (+ off) <$> use botPos
   let life' = if life < 0 then 0 else life
-      rp = (max - life') / max
-      gp = life / (max / 2)
-      box = Rect pos (Vec (maxw * life' / max) h) 0
+      rp = (maxL - life') / maxL
+      gp = life / (maxL / 2)
+      box = Rect pos (Vec (maxw * life' / maxL) h) 0
   drawRect (colour (round $ rp * 255) (round $ gp * 255) 0x00) box
 
 drawBot :: DrawBot ()
 drawBot = do
-  pos <- use botPos
   drawChassis
   drawGun
   drawRadar

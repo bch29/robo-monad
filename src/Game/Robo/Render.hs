@@ -23,10 +23,9 @@ module Game.Robo.Render
   , drawRender
   ) where
 
-import Graphics.UI.GLFW as GL hiding (Line)
+import Graphics.UI.GLFW as GL
 import Graphics.Rendering.OpenGL as GL hiding (Line)
 
-import Control.Applicative
 import Control.Monad.State.Strict
 import Control.Monad.Writer.Strict
 import Control.Monad.Reader
@@ -99,7 +98,7 @@ colourWord w =
 -- filling the background with the given colour, and returning the value
 -- in the Draw monad.
 runDraw :: Draw a -> RenderData -> IO a
-runDraw draw rd@(RenderData _ drawVar) = do
+runDraw draw (RenderData _ drawVar) = do
   let draws = unwrapDraw draw
       -- we reverse the list of objects so that the first ones put in
       -- the list are the first ones to be drawn
@@ -134,12 +133,12 @@ doCircle :: Colour -> Vec -> Scalar -> IO ()
 doCircle col cen rad = GL.renderPrimitive GL.LineLoop $ do
   let atAng ang = GL.vertex . vecToVert $ cen + Vec (rad * cos ang) (rad * sin ang)
   color col
-  mapM_ (atAng . (*(2*pi)) . (/20) . fromIntegral) [0..19]
+  mapM_ (atAng . (*(2*pi)) . (/20)) [0..19]
 
 -- | Draw an object to the screen using GLUT.
 doDrawObject :: DrawObject -> IO ()
 doDrawObject obj =
-  let ln col v1 v2 =
+  let ln v1 v2 =
         GL.renderPrimitive GL.Lines $ do
           GL.vertex (vecToVert v1)
           GL.vertex (vecToVert v2)
@@ -147,11 +146,11 @@ doDrawObject obj =
         Poly col corners@(x:_) -> do
             color col
             loop corners
-          where loop [a] = ln col a x
-                loop (a:b:rest) = ln col a b >> loop (b:rest)
+          where loop [a] = ln a x
+                loop (a:b:rest) = ln a b >> loop (b:rest)
                 loop [] = return ()
         Poly _ _ -> return ()
-        Line col v1 v2 -> color col >> ln col v1 v2
+        Line col v1 v2 -> color col >> ln v1 v2
         Circle col cen rad -> doCircle col cen rad
 
 -- | The function to actually do the displaying
@@ -186,7 +185,7 @@ drawRender (RenderData win drawVar) = do
 -- | Make a window to draw in.
 startRender :: String -> Int -> Int -> IO RenderData
 startRender windowName width height = do
-  GL.init
+  _ <- GL.init
   (Just w) <- createWindow (fromIntegral width) (fromIntegral height) windowName Nothing Nothing
   makeContextCurrent (Just w)
 
