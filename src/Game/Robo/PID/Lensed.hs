@@ -23,39 +23,39 @@ import Lens.Micro.Platform
 
 import Game.Robo.PID.Class
 
-data PID a s = PID
-  { _pidGainP :: a
-  , _pidGainI :: a
-  , _pidGainD :: a
-  , _pidCutoffI :: a
+data PID scalar val = PID
+  { _pidGainP :: scalar
+  , _pidGainI :: scalar
+  , _pidGainD :: scalar
+  , _pidCutoffI :: scalar
 
-  , _pidTermI :: s
-  , _pidError :: s
-  , _pidOut   :: s
+  , _pidTermI :: val
+  , _pidError :: val
+  , _pidOut   :: val
   }
 
 makeLenses ''PID
 
 -- | Make a PID controller given gains for the P, I and D terms respectively,
 -- as well as a value for I cutoff.
-makePid :: Pidable a s => a -> a -> a -> a -> PID a s
+makePid :: Pidable scalar val => scalar -> scalar -> scalar -> scalar -> PID scalar val
 makePid gp gi gd ci = PID
   { _pidGainP = gp
   , _pidGainI = gi
   , _pidGainD = gd
   , _pidCutoffI = ci
 
-  , _pidTermI = pidNone
-  , _pidError = pidNone
-  , _pidOut   = pidNone }
+  , _pidTermI = pidZero
+  , _pidError = pidZero
+  , _pidOut   = pidZero }
 
 -- | Make a PID controller given gains for the P, I and D terms respectively,
 -- using a sensible I cutoff.
-makePidSimple :: Pidable a s => a -> a -> a -> PID a s
+makePidSimple :: Pidable scalar val => scalar -> scalar -> scalar -> PID scalar val
 makePidSimple gp gi gd = makePid gp gi gd 10
 
 -- | Update a PID controller with a new error.
-updatePid :: Pidable a s => s -> PID a s -> PID a s
+updatePid :: (Pidable scalar val, Ord scalar) => val -> PID scalar val -> PID scalar val
 updatePid newError pid =
     pid & pidError .~ newError
         & pidOut   .~ pterm `pidSum` dterm `pidSum` iterm
@@ -64,5 +64,5 @@ updatePid newError pid =
         pterm = mulScalar (pid^.pidGainP) newError
         dterm = mulScalar (pid^.pidGainD) delta
         iterm = if magnitude (pterm `pidSum` dterm) < (pid^.pidCutoffI)
-                   then (pid^.pidTermI) `pidSum` mulScalar (pid^.pidGainI) delta
-                   else pidNone
+                then (pid^.pidTermI) `pidSum` mulScalar (pid^.pidGainI) delta
+                else pidZero

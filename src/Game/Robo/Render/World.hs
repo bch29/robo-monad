@@ -13,8 +13,6 @@ module Game.Robo.Render.World where
 
 import Lens.Micro.Platform
 
-import Control.Monad.Reader
-
 import Game.Robo.Core
 import Game.Robo.Render
 import Game.Robo.Render.Bot
@@ -31,13 +29,14 @@ drawWorld :: DrawWorld ()
 drawWorld = do
     -- liftIO . void $ fillRect surface Nothing (Pixel 0xFF100808)
 
-    bots <- use wldBots
-    let drawBot' bot = applyBot (bot^.botID) drawBot
-    mapM_ drawBot' bots
+    -- bots <- use wldBots
+    -- let drawBot' bot = applyBot (bot^.botID) drawBot
+    -- mapM_ drawBot' bots
+    zoom (wldBots.traverse) drawBot
 
     buls <- use wldBullets
     mapM_ drawBullet buls
 
-    Vec w h <- asks (view ruleArenaSize)
+    Vec w h <- view ruleArenaSize
 
     drawPoly (colourWord 0xFFFFFF) [Vec 0 0, Vec 0 h, Vec w h, Vec w 0]

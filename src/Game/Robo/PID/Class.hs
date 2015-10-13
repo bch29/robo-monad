@@ -17,23 +17,23 @@ module Game.Robo.PID.Class where
 import Game.Robo.Core.Types.Maths
 import Game.Robo.Maths
 
-class (Fractional a, Ord a) => Pidable a s | s -> a where
-  mulScalar :: a -> s -> s
-  pidDiff   :: s -> s -> s
-  pidSum    :: s -> s -> s
-  magnitude :: s -> a
-  pidNone   :: s
+class Fractional scalar => Pidable scalar val | val -> scalar where
+  mulScalar :: scalar -> val -> val
+  pidDiff   :: val -> val -> val
+  pidSum    :: val -> val -> val
+  magnitude :: val -> scalar
+  pidZero   :: val
 
 instance Pidable Double Double where
   mulScalar = (*)
   pidDiff   = (-)
   pidSum    = (+)
   magnitude = abs
-  pidNone   = 0
+  pidZero   = 0
 
 instance Pidable Double Vec where
   mulScalar = (*|)
   pidDiff   = (-)
   pidSum    = (+)
   magnitude = vecMag
-  pidNone   = 0
+  pidZero   = 0

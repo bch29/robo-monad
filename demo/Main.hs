@@ -1,3 +1,4 @@
+{-# LANGUAGE UnicodeSyntax #-}
 {-|
 Module      : Main
 Description : An example showing how to start RoboMonad.
@@ -11,17 +12,17 @@ Portability : non-portable
 
 module Main where
 
-import Game.Robo
+import           Game.Robo
 
 -- Import the robots that we want to fight.
-import WallHugger
-import Crazy
-import BulletTester
+import           BulletTester
+import           Crazy
+import           WallHugger
 
 -- Use the default rules.
-myRules :: Rules
+myRules ∷ Rules
 myRules = defaultRules
 
 -- Start the world with our ruleset and robots.
-main :: IO ()
-main = runWorld myRules [crazy, wallhugger]
+main ∷ IO ()
+main = runWorld myRules [wallhugger, wallhugger, crazy, crazy]

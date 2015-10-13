@@ -11,14 +11,15 @@ Attempts to fire in a direction where it can't see any other robots.
 -}
 
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UnicodeSyntax   #-}
 
 module BulletTester (bullettester) where
 
 -- Import of Game.Robo required, Maths and PID
 -- provide handy utility functions.
-import Game.Robo
-import Game.Robo.Maths
-import Game.Robo.PID.Lensed
+import           Game.Robo
+import           Game.Robo.Maths
+import           Game.Robo.PID.Lensed
 
 -- | Provides a handy alias for this robot's Robo monad.
 type BulletTester = Robo BulletTesterState
@@ -27,14 +28,14 @@ type BulletTester = Robo BulletTesterState
 -- underscores (so that template haskell can convert them to
 -- lenses).
 data BulletTesterState = BulletTesterState
-  { _gunPid :: PID Scalar Scalar
-  , _turnPid :: PID Scalar Scalar
+  { _gunPid     :: PID Scalar Scalar
+  , _turnPid    :: PID Scalar Scalar
   , _turnTarget :: Angle
-  , _gunTarget :: Angle
+  , _gunTarget  :: Angle
   }
 
 -- | Give fields their initial values.
-emptyState :: BulletTesterState
+emptyState ∷ BulletTesterState
 emptyState = BulletTesterState
   { _gunPid = makePidSimple 80 20 40
   , _turnPid = makePidSimple 80 20 40
@@ -46,21 +47,21 @@ emptyState = BulletTesterState
 -- to easily access variables.
 makeLenses ''BulletTesterState
 
-findAngle :: BulletTester Angle
+findAngle ∷ BulletTester Angle
 findAngle = do
   pos <- getPosition
   centre <- (|* 0.5) <$> getRule ruleArenaSize
   return (centre `angleTo` pos)
 
 -- | Runs when the bot is first created.
-myInit :: BulletTester ()
+myInit ∷ BulletTester ()
 myInit = do
   ang <- findAngle
   turnTarget .= ang
   setThrust 100
   return ()
 
-tickGun :: BulletTester ()
+tickGun ∷ BulletTester ()
 tickGun = do
   -- aim for the centre
   size <- getRule ruleArenaSize
@@ -74,7 +75,7 @@ tickGun = do
   setGunTurnPower =<< use (gunPid.pidOut)
   setFiring 0.5
 
-tickTurning :: BulletTester ()
+tickTurning ∷ BulletTester ()
 tickTurning = do
   ang <- getHeading
   target <- use turnTarget
@@ -82,34 +83,30 @@ tickTurning = do
   setTurnPower =<< use (turnPid.pidOut)
 
 -- | Runs every game tick.
-myTick :: BulletTester ()
+myTick ∷ BulletTester ()
 myTick = do
   tickGun
   tickTurning
 
 -- | Runs when the radar passes over an enemy robot.
-myScan :: ScanData -> BulletTester ()
-myScan s = do
-  return ()
+myScan ∷ ScanData → BulletTester ()
+myScan _ = return ()
 
 -- | Runs when the robot is hit by an enemy bullet.
-myOnHitByBullet :: BulletTester ()
-myOnHitByBullet = do
-  return ()
+myOnHitByBullet ∷ BulletTester ()
+myOnHitByBullet = return ()
 
 -- | Runs when a bullet fired by this robot hits an enemy.
-myOnBulletHit :: BulletTester ()
-myOnBulletHit = do
-  return ()
+myOnBulletHit ∷ BulletTester ()
+myOnBulletHit = return ()
 
 -- | Runs when this robot collides with the arena walls.
-myOnCollideWall :: WallCollisionData -> BulletTester ()
-myOnCollideWall w = do
-  return ()
+myOnCollideWall ∷ WallCollisionData → BulletTester ()
+myOnCollideWall _ = return ()
 
 -- | This is the actual robot specification to be passed to
 -- @runWorld@.
-bullettester :: BotSpec
+bullettester ∷ BotSpec
 bullettester = BotSpec
   { botName         = "bullettester"
   , botInitialState = emptyState

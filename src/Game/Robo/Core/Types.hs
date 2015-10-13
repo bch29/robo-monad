@@ -10,13 +10,14 @@ Portability : non-portable
 These are defined in their own file to avoid module import cycles.
 -}
 
-{-# LANGUAGE ExistentialQuantification  #-} -- Note [ExistentialQuantification]
-{-# LANGUAGE GeneralizedNewtypeDeriving #-} -- For easy newtype wrapping
-{-# LANGUAGE MultiParamTypeClasses      #-} -- For MonadState instance of @Robo s@
-{-# LANGUAGE FlexibleInstances          #-} -- For MonadState instance of @Robo s@
-{-# LANGUAGE GADTs                      #-} -- For the @RoboF@ GADT
-{-# LANGUAGE DeriveFunctor              #-} -- For Functor instance of @RoboF s@
-{-# LANGUAGE StandaloneDeriving         #-} -- For Functor instance of @RoboF s@
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE ExistentialQuantification  #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE UnicodeSyntax              #-}
 
 module Game.Robo.Core.Types
   ( Rules (..)
@@ -24,7 +25,9 @@ module Game.Robo.Core.Types
   , Robo (..), RoboF (..)
   , Bot, IOBot, DrawBot
   , World, IOWorld, DrawWorld
-  , PureContext, DrawContext, ContextT
+  , PureContext
+
+  , DrawContext, ContextT
 
   , GameActions (..)
 
@@ -42,19 +45,18 @@ module Game.Robo.Core.Types
   , module Game.Robo.Core.Types.Maths
   ) where
 
-import Control.Monad.State.Strict
-import Control.Monad.Reader
-import Control.Monad.Writer.Strict
-import Control.Monad.Random
+import           Control.Monad.Random
+import           Control.Monad.Reader
+import           Control.Monad.State.Strict
+import           Control.Monad.Writer.Strict
 
+import           Control.Concurrent
+import           Control.DeepSeq
+import           Control.Monad.Free
+import           Data.Vector
 
-
-import Control.DeepSeq
-import Control.Concurrent
-import Control.Monad.Free
-
-import Game.Robo.Render
-import Game.Robo.Core.Types.Maths
+import           Game.Robo.Core.Types.Maths
+import           Game.Robo.Render
 
 ---------------------------------
 --  Rules
@@ -127,28 +129,26 @@ data Rules = Rules
 --  Monads
 ---------------------------------
 
----------------------------------
---  THE MONAD
----------------------------------
-
--- | The main Robo Monad. Parametrised by user state.
+-- | The main Robo Monad. Parameterised by user state. Newtyped for better type
+-- errors.
 newtype Robo s a = Robo (Free (RoboF s) a)
-  deriving ( Functor
-           , Applicative
-           , Monad)
+
+deriving instance Functor (Robo s)
+deriving instance Applicative (Robo s)
+deriving instance Monad (Robo s)
 
 -- | The functor used for the free monad representation of robots.
 data RoboF s a where
-  GetUStateR :: (s -> a)                         -> RoboF s a
-  PutUStateR :: s -> a                           -> RoboF s a
-  GetIStateR :: (BotState -> a)                  -> RoboF s a
-  PutIStateR :: BotState -> a                    -> RoboF s a
-  RulesR     :: (Rules -> a)                     -> RoboF s a
-  LogR       :: String -> a                      -> RoboF s a
-  RandVR     :: Random r => (r -> a)             -> RoboF s a
-  RandsVR    :: Random r => ([r] -> a)           -> RoboF s a
-  RandIR     :: Random r => (r, r) -> (r -> a)   -> RoboF s a
-  RandsIR    :: Random r => (r, r) -> ([r] -> a) -> RoboF s a
+  GetUStateR :: (s → a)                       → RoboF s a
+  PutUStateR :: s → a                         → RoboF s a
+  GetIStateR :: (BotState → a)                → RoboF s a
+  PutIStateR :: BotState → a                  → RoboF s a
+  RulesR     :: (Rules → a)                   → RoboF s a
+  LogR       :: String → a                    → RoboF s a
+  RandVR     :: Random r ⇒            (r → a) → RoboF s a
+  RandsVR    :: Random r ⇒          ([r] → a) → RoboF s a
+  RandIR     :: Random r ⇒ (r, r) →   (r → a) → RoboF s a
+  RandsIR    :: Random r ⇒ (r, r) → ([r] → a) → RoboF s a
 
 deriving instance Functor (RoboF s)
 
@@ -190,13 +190,13 @@ type ContextT s m = StateT s (WriterT String (ReaderT Rules m))
 data GameActions s = GameActions
   {
     -- | The action which is called as the game is initialising.
-    actionInit :: Maybe (ContextT s IO ())
+    actionInit     :: Maybe (ContextT s IO ())
     -- | The main action which is continually called while doing nothing else.
-  , actionMain :: Maybe (ContextT s IO ())
+  , actionMain     :: Maybe (ContextT s IO ())
     -- | The action that that is called when it is time to render the frame.
-  , actionDraw :: Maybe (DrawContext s ())
+  , actionDraw     :: Maybe (DrawContext s ())
     -- | The action that is called when a key is pressed.
-  , actionKeyboard :: Maybe (Char -> ContextT s IO ())
+  , actionKeyboard :: Maybe (Char → ContextT s IO ())
   }
 
 ---------------------------------
@@ -205,15 +205,15 @@ data GameActions s = GameActions
 
 -- | State information for the world in which the battle is taking place.
 data WorldState = WorldState
-  { _wldBullets   :: ![Bullet]   -- The bullets fired by robots.
-  , _wldBots      :: ![BotState] -- The robots themselves.
-  , _wldRect      :: !Rect       -- Represents the size of the arena.
-  , _wldTime0     :: !Int        -- The time when the SPS was last changed.
-  , _wldTime      :: !Int        -- The time in milliseconds since simulation started.
-  , _wldStepsDone :: !Int        -- The number of steps done since the SPS was last changed.
-  , _wldSPS       :: !Int        -- The current number of steps per second.
-  , _wldSinceTick :: !Int        -- The number of steps that have passed since the last tick.
-  , _wldUpdateChans  :: [Chan BotUpdate] -- The channels along which the world sends update requests to the bots.
+  { _wldBullets      :: !(Vector Bullet)   -- The bullets fired by robots.
+  , _wldBots         :: !(Vector BotState) -- The robots themselves.
+  , _wldRect         :: !Rect       -- Represents the size of the arena.
+  , _wldTime0        :: !Int        -- The time when the SPS was last changed.
+  , _wldTime         :: !Int        -- The time in milliseconds since simulation started.
+  , _wldStepsDone    :: !Int        -- The number of steps done since the SPS was last changed.
+  , _wldSPS          :: !Int        -- The current number of steps per second.
+  , _wldSinceTick    :: !Int        -- The number of steps that have passed since the last tick.
+  , _wldUpdateChans  :: !(Vector (Chan BotUpdate)) -- The channels along which the world sends update requests to the bots.
      -- The channel along which the bots send update responses to the world.
   , _wldResponseChan :: Maybe (Chan BotResponse)
   }
@@ -246,21 +246,21 @@ data BotState = BotState
 data BotSpec = forall s. BotSpec -- Note [ExistentialQuantification]
   {
   -- | The robot's name.
-    botName :: String
+    botName         :: String
   -- | The initial state.
   , botInitialState :: s
   -- | Executed when the robot is initialised.
-  , onInit :: Robo s ()
+  , onInit          :: Robo s ()
   -- | Executed when a game tick passes.
-  , onTick :: Robo s ()
+  , onTick          :: Robo s ()
   -- | Executed when the radar scans another bot.
-  , onScan :: ScanData -> Robo s ()
+  , onScan          :: ScanData → Robo s ()
   -- | Executed when this robot is hit by an enemy bullet.
-  , onHitByBullet :: Robo s ()
+  , onHitByBullet   :: Robo s ()
   -- | Executed when a bullet fired by this robot hits a target.
-  , onBulletHit   :: Robo s ()
+  , onBulletHit     :: Robo s ()
   -- | Executed when the robot collides with a wall.
-  , onCollideWall :: WallCollisionData -> Robo s ()
+  , onCollideWall   :: WallCollisionData → Robo s ()
   }
 
 {-
@@ -335,13 +335,13 @@ data BotUpdate = BotUpdate
   , updateWorld            :: !WorldState        -- The world state at the start of the update.
   , updatePassed           :: !Double            -- The amount of time since the last update.
   , updateDoTick           :: !Bool              -- Should the robot run its onTick?
-  , updateBulletCollisions :: ![BulletCollision] -- Was the robot hit by a bullet?
+  , updateBulletCollisions :: !(Vector BulletCollision) -- Was the robot hit by a bullet?
   }
 
 data BotResponse = BotResponse
   { responseID      :: !BotID    -- The ID of the robot responding.
   , responseState   :: !BotState -- The new state of the robot after an update.
-  , responseBullets :: ![Bullet] -- The bullets fired by the robot during the update.
+  , responseBullets :: !(Vector Bullet) -- The bullets fired by the robot during the update.
   }
 
 ---------------------------------

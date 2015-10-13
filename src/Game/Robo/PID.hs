@@ -9,7 +9,7 @@ Portability : non-portable
 
 -}
 
-{-# LANGUAGE Trustworthy #-} -- Enables compilation of robot files with Safe Haskell.
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Game.Robo.PID
   ( PID (..)
@@ -18,41 +18,39 @@ module Game.Robo.PID
   , module Game.Robo.PID.Class
   ) where
 
-import Game.Robo.Maths
+import           Game.Robo.PID.Class
 
-import Game.Robo.PID.Class
+data PID scalar val = PID
+  { pidGainP   :: scalar
+  , pidGainI   :: scalar
+  , pidGainD   :: scalar
+  , pidCutoffI :: scalar
 
-data PID a s = PID
-  { pidGainP :: a
-  , pidGainI :: a
-  , pidGainD :: a
-  , pidCutoffI :: a
-
-  , pidTermI :: s
-  , pidError :: s
-  , pidOut   :: s
+  , pidTermI   :: val
+  , pidError   :: val
+  , pidOut     :: val
   }
 
 -- | Make a PID controller given gains for the P, I and D terms respectively,
 -- as well as a value for I cutoff.
-makePid :: Pidable a s => a -> a -> a -> a -> PID a s
+makePid :: Pidable scalar val => scalar -> scalar -> scalar -> scalar -> PID scalar val
 makePid gp gi gd ci = PID
   { pidGainP = gp
   , pidGainI = gi
   , pidGainD = gd
   , pidCutoffI = ci
 
-  , pidTermI = pidNone
-  , pidError = pidNone
-  , pidOut   = pidNone }
+  , pidTermI = pidZero
+  , pidError = pidZero
+  , pidOut   = pidZero }
 
 -- | Make a PID controller given gains for the P, I and D terms respectively,
 -- using a sensible I cutoff.
-makePidSimple :: Pidable a s => a -> a -> a -> PID a s
+makePidSimple :: Pidable scalar val => scalar -> scalar -> scalar -> PID scalar val
 makePidSimple gp gi gd = makePid gp gi gd 10
 
 -- | Update a PID controller with a new error.
-updatePid :: Pidable a s => s -> PID a s -> PID a s
+updatePid :: (Pidable scalar val, Ord scalar) => val -> PID scalar val -> PID scalar val
 updatePid newError pid =
     pid { pidError = newError
         , pidOut   = pterm `pidSum` dterm `pidSum` iterm
@@ -62,4 +60,4 @@ updatePid newError pid =
         dterm = mulScalar (pidGainD pid) delta
         iterm = if magnitude (pterm `pidSum` dterm) < pidCutoffI pid
                    then pidTermI pid `pidSum` mulScalar (pidGainI pid) delta
-                   else pidNone
+                   else pidZero

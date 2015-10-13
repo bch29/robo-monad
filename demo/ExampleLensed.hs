@@ -10,13 +10,15 @@ Portability : non-portable
 -}
 
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UnicodeSyntax   #-}
+
 module ExampleLensed (examplebot) where
 
 -- Import of Game.Robo required, Maths and PidController
 -- provide handy utility functions.
-import Game.Robo
-import Game.Robo.Maths
-import Game.Robo.PID.Lensed
+import           Game.Robo
+import           Game.Robo.Maths
+import           Game.Robo.PID.Lensed
 
 -- | Provides a handy alias for this robot's Robo monad.
 type ExampleLensed = Robo ExampleLensedState
@@ -29,7 +31,7 @@ data ExampleLensedState = ExampleLensedState
   }
 
 -- | Give fields their initial values.
-emptyState :: ExampleLensedState
+emptyState ∷ ExampleLensedState
 emptyState = ExampleLensedState
   { _someState = 0
   }
@@ -39,38 +41,38 @@ emptyState = ExampleLensedState
 makeLenses ''ExampleLensedState
 
 -- | Runs when the bot is first created.
-myInit :: ExampleLensed ()
+myInit ∷ ExampleLensed ()
 myInit = do
   return ()
 
 -- | Runs every game tick.
-myTick :: ExampleLensed ()
+myTick ∷ ExampleLensed ()
 myTick = do
   return ()
 
 -- | Runs when the radar passes over an enemy robot.
-myScan :: ScanData -> ExampleLensed ()
+myScan ∷ ScanData → ExampleLensed ()
 myScan s = do
   return ()
 
 -- | Runs when the robot is hit by an enemy bullet.
-myOnHitByBullet :: ExampleLensed ()
+myOnHitByBullet ∷ ExampleLensed ()
 myOnHitByBullet = do
   return ()
 
 -- | Runs when a bullet fired by this robot hits an enemy.
-myOnBulletHit :: ExampleLensed ()
+myOnBulletHit ∷ ExampleLensed ()
 myOnBulletHit = do
   return ()
 
 -- | Runs when this robot collides with the arena walls.
-myOnCollideWall :: WallCollisionData -> ExampleLensed ()
+myOnCollideWall ∷ WallCollisionData → ExampleLensed ()
 myOnCollideWall w = do
   return ()
 
 -- | This is the actual robot specification to be passed to
 -- @runWorld@.
-examplebot :: BotSpec
+examplebot ∷ BotSpec
 examplebot = BotSpec
   { botName         = "examplebot"
   , botInitialState = emptyState

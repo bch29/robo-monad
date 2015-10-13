@@ -1,4 +1,3 @@
-{-# LANGUAGE RankNTypes #-}
 {-|
 Module      : Crazy
 Description : A robot that moves around randomly and bounces off walls.
@@ -10,13 +9,15 @@ Portability : non-portable
 
 -}
 
+{-# LANGUAGE UnicodeSyntax #-}
+
 module Crazy (crazy) where
 
-import Game.Robo
-import Game.Robo.Maths
-import Game.Robo.PID.Lensed
+import           Game.Robo
+import           Game.Robo.Maths
+import           Game.Robo.PID.Lensed
 
-import Control.Monad
+import           Control.Monad
 
 type Crazy = Robo CrazyState
 
@@ -26,16 +27,16 @@ data CrazyState = CrazyState
   , _targetAngle :: Angle
   }
 
-turningPid :: Lens' CrazyState (PID Scalar Scalar)
+turningPid ∷ Lens' CrazyState (PID Scalar Scalar)
 turningPid f s = fmap (\x -> s { _turningPid = x }) (f (_turningPid s))
 
-direction :: Lens' CrazyState Scalar
+direction ∷ Lens' CrazyState Scalar
 direction f s = fmap (\x -> s { _direction = x }) (f (_direction s))
 
-targetAngle :: Lens' CrazyState Angle
+targetAngle ∷ Lens' CrazyState Angle
 targetAngle f s = fmap (\x -> s { _targetAngle = x }) (f (_targetAngle s))
 
-myInitialState :: CrazyState
+myInitialState ∷ CrazyState
 myInitialState = CrazyState
   { _turningPid  = makePidSimple 50 0 30
   -- PID controller with no D gain used for spray effect
@@ -43,14 +44,14 @@ myInitialState = CrazyState
   , _targetAngle = 0
   }
 
-initBot :: Crazy ()
+initBot ∷ Crazy ()
 initBot = do
   setThrust 500
   ang <- getRandomR (-pi, pi)
   -- set off in a random direction
   targetAngle .= ang
 
-run :: Crazy ()
+run ∷ Crazy ()
 run =
   -- pid controller towards target angle
   do ang  <- getHeading
@@ -58,20 +59,20 @@ run =
      turningPid %= updatePid (angNormRelative (tAng - ang))
      setTurnPower =<< use (turningPid.pidOut)
 
-scan :: ScanData -> Crazy ()
+scan ∷ ScanData → Crazy ()
 scan _ =
     -- fire a bullet when we see an enemy
     setFiring 4
 
-myOnHitByBullet :: Crazy ()
+myOnHitByBullet ∷ Crazy ()
 myOnHitByBullet =
   return ()
 
-myOnBulletHit :: Crazy ()
+myOnBulletHit ∷ Crazy ()
 myOnBulletHit =
   return ()
 
-chooseAngle :: Angle -> Crazy ()
+chooseAngle ∷ Angle → Crazy ()
 chooseAngle hitAngle = do
   heading <- getHeading
   dir <- use direction
@@ -91,7 +92,7 @@ chooseAngle hitAngle = do
   tang <- getRandomR range'
   targetAngle .= tang
 
-myOnCollideWall :: WallCollisionData -> Crazy ()
+myOnCollideWall ∷ WallCollisionData → Crazy ()
 myOnCollideWall dat = do
   direction *= -1
   let a1 = abs (wcolAngle dat)
@@ -101,7 +102,7 @@ myOnCollideWall dat = do
   when (a1 > 0.3 && a2 > 0.3) (chooseAngle (wcolAngle dat))
   setThrust =<< (*) 500 <$> use direction
 
-crazy :: BotSpec
+crazy ∷ BotSpec
 crazy = BotSpec
   { botName         = "crazy"
   , botInitialState = myInitialState

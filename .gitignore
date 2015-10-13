@@ -30,3 +30,8 @@ tags
 # stack
 /.stack*
 /stack*
+
+# build scripts
+/build
+/run
+/view-heap

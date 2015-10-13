@@ -9,13 +9,15 @@ Portability : non-portable
 
 -}
 
+{-# LANGUAGE UnicodeSyntax #-}
+
 module ExampleBot (examplebot) where
 
 -- Import of Game.Robo required, Maths and PidController
 -- provide handy utility functions.
-import Game.Robo
-import Game.Robo.Maths
-import Game.Robo.PID
+import           Game.Robo
+import           Game.Robo.Maths
+import           Game.Robo.PID
 
 -- | Provides a handy alias for this robot's Robo monad.
 type ExampleBot = Robo ExampleBotState
@@ -28,44 +30,44 @@ data ExampleBotState = ExampleBotState
   }
 
 -- | Give fields their initial values.
-emptyState :: ExampleBotState
+emptyState ∷ ExampleBotState
 emptyState = ExampleBotState
   { someState = 0
   }
 
 -- | Runs when the bot is first created.
-myInit :: ExampleBot ()
+myInit ∷ ExampleBot ()
 myInit = do
   return ()
 
 -- | Runs every game tick.
-myTick :: ExampleBot ()
+myTick ∷ ExampleBot ()
 myTick = do
   return ()
 
 -- | Runs when the radar passes over an enemy robot.
-myScan :: ScanData -> ExampleBot ()
+myScan ∷ ScanData → ExampleBot ()
 myScan s = do
   return ()
 
 -- | Runs when the robot is hit by an enemy bullet.
-myOnHitByBullet :: ExampleBot ()
+myOnHitByBullet ∷ ExampleBot ()
 myOnHitByBullet = do
   return ()
 
 -- | Runs when a bullet fired by this robot hits an enemy.
-myOnBulletHit :: ExampleBot ()
+myOnBulletHit ∷ ExampleBot ()
 myOnBulletHit = do
   return ()
 
 -- | Runs when this robot collides with the arena walls.
-myOnCollideWall :: WallCollisionData -> ExampleBot ()
+myOnCollideWall ∷ WallCollisionData → ExampleBot ()
 myOnCollideWall w = do
   return ()
 
 -- | This is the actual robot specification to be passed to
 -- @runWorld@.
-examplebot :: BotSpec
+examplebot ∷ BotSpec
 examplebot = BotSpec
   { botName         = "examplebot"
   , botInitialState = emptyState

@@ -7,25 +7,25 @@ Maintainer  : bradleyhardy@live.com
 Stability   : experimental
 Portability : non-portable
 
-This module makes the Rule lenses so that all rule lenses
-can be easily exported in Game.Robo just by exporting the
-whole Game.Robo.Core.Rules module. This is important because
-new rules are added all the time as part of ongoing
-developmentand we want to restrict the number of places
-things need updating every time a new rule is added.
+This module makes the Rule lenses so that all rule lenses can be easily exported
+in Game.Robo just by exporting the whole Game.Robo.Core.Rules module. This is
+important because new rules are added all the time as part of ongoing
+development and we want to restrict the number of places things need updating
+every time a new rule is added.
 -}
 
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UnicodeSyntax   #-}
 
 module Game.Robo.Core.Rules where
 
-import Lens.Micro.Platform
-import Game.Robo.Core.Types
+import           Game.Robo.Core.Types
+import           Lens.Micro.Platform
 
 makeLenses ''Rules
 
 -- | A sensible default set of rules to use in the simulation environment.
-defaultRules :: Rules
+defaultRules ∷ Rules
 defaultRules = Rules
   -- Robot
   { _ruleBotSize            = Vec 60 40

@@ -193,12 +193,9 @@ logShow = logLine . show
 --  UTILITY FUNCTIONS
 ---------------------------------
 
--- setICapped
---   :: (Num a,Ord a)
---   => Getter' Rules a -> Setter' BotState a -> a -> Robo s ()
 setICapped
   :: (Num b, Ord b) =>
-     Getting b Rules b
+     Getter Rules b
      -> ASetter BotState BotState a b -> b -> Robo s ()
 setICapped capBy setter val = do
   limit <- fmap (view capBy) rules
@@ -213,7 +210,7 @@ getI = (Robo . liftF . GetIStateR) id
 setI :: BotState -> Robo s ()
 setI newState = (Robo . liftF) (PutIStateR newState ())
 
-useI :: Getting b BotState b -> Robo s b
+useI :: Getter BotState b -> Robo s b
 useI l = fmap (view l) getI
 
 setIL :: ASetter BotState BotState a b -> b -> Robo s ()

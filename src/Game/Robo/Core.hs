@@ -9,19 +9,18 @@ Portability : non-portable
 
 Mainly contains utility functions for unwrapping/lifting/promoting/handling monads,
 re-exports Types, Lenses and Rules because almost everything that uses Core also
-use all of those.
+uses all of those.
 -}
 
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module Game.Robo.Core
-  ( applyBot
-  , applyBots
-  , applyAllBots
-  , botsFindM
+  ( botsFindM
   , runRobo
   , runContext
   , evalContext
   , runPureContext
-  , promoteContext
   , runDrawing
   , forceContext
   , iterateContext
@@ -32,8 +31,8 @@ module Game.Robo.Core
 
 import Graphics.UI.GLFW
 import Data.IORef
-import Data.Array hiding (range)
 import Data.Maybe (fromMaybe)
+import qualified Data.Vector as V
 
 import Lens.Micro.Platform
 
@@ -42,9 +41,9 @@ import Control.Exception
 
 import Control.Monad.Free
 
-import Control.Monad.Reader
-import Control.Monad.Writer.Strict
-import Control.Monad.State.Strict
+import Control.Monad.Reader hiding (mapM)
+import Control.Monad.Writer.Strict hiding (mapM)
+import Control.Monad.State.Strict hiding (mapM)
 import Control.Monad.Random hiding (next)
 
 import Game.Robo.Core.Types as X
@@ -52,65 +51,25 @@ import Game.Robo.Core.Rules as X
 import Game.Robo.Core.Lenses as X
 import Game.Robo.Render
 
--- | Evaluate a Bot monadic action in the context of its world.
-applyBot :: Monad m => BotID -> ContextT BotState m a -> ContextT WorldState m a
-applyBot bid bot = do
-  botStates <- use wldBots
-  let (prevStates, targetState : postStates) = splitAt (bid - 1) botStates
-  (result, newState) <- lift $ runStateT bot targetState
-  wldBots .= prevStates ++ newState : postStates
-  return result
-
--- | Evaluate many Bot monadic actions in the context of their world.
--- Much more efficient than running applyBot for every Bot.
-applyBots :: (Monad m, Functor m) => [(BotID, ContextT BotState m a)] -> ContextT WorldState m [a]
-applyBots bots = do
-  botStates <- use wldBots
-  let initialArr = listArray (1, length botStates) botStates
-      mkNewState (bid, action) = do
-        (res, st) <- lift $ runStateT action (initialArr ! bid)
-        return (res, (bid, st))
-  newStates <- mapM mkNewState bots
-  let (res, updates) = unzip newStates
-      finalArr = initialArr // updates
-  wldBots .= elems finalArr
-  return res
-
--- | Evaluate each given Bot action for each robot in the world in turn.
-applyAllBots :: (Monad m, Functor m) => [ContextT BotState m a] -> ContextT WorldState m [a]
-applyAllBots bots = do
-  botStates <- use wldBots
-  let runfun action st = lift $ runStateT action st
-  (res, newStates) <- unzip <$> zipWithM runfun bots botStates
-  wldBots .= newStates
-  return res
-
--- | Return the first bot ID that satisfies a monadic predicate by running it
+-- | Returns the first bot ID that satisfies a monadic predicate by running it
 -- for each bot in turn but stopping when it returns True.
 botsFindM :: Monad m => ContextT BotState m Bool -> ContextT WorldState m (Maybe BotID)
 botsFindM action = do
   botStates <- use wldBots
   let doWhile bid sts' (st:sts) = do
-        (cont, st') <- lift $ runStateT action st
-        if cont
+        (done, st') <- lift $ runStateT action st
+        if not done
            then doWhile (bid+1) (st':sts') sts
            else return (Just bid, reverse (st':sts') ++ sts)
       doWhile _ sts' [] = return (Nothing, reverse sts')
-  (res, newStates) <- doWhile 1 [] botStates
-  wldBots .= newStates
+  (res, newStates) <- doWhile 1 [] (V.toList botStates)
+  wldBots .= V.fromList newStates
   return res
 
--- data RoboF s next
---   = GetUStateR (s -> next)
---   | PutUStateR s next
---   | GetIStateR (BotState -> next)
---   | PutIStateR BotState next
---   | RulesR (Rules -> next)
---   | LogR String next
---   deriving (Functor)
-
--- | Evaluate a Robo down to its underlying Bot monad.
-runRobo :: Robo s a -> s -> Bot (a, s)
+-- | Evaluates a Robo in a Bot context.
+runRobo
+  :: (MonadState BotState m, MonadRandom m, MonadWriter String m, MonadReader Rules m)
+     => Robo s a -> s -> m (a, s)
 runRobo (Robo free) s =
   case free of
     Pure x -> return (x, s)
@@ -163,18 +122,6 @@ runContext ctx rules st = do
 evalContext :: Monad m => ContextT s m a -> Rules -> s -> m a
 evalContext ctx rules st = do
   (res, _, _) <- runContext ctx rules st
-  return res
-
--- | Promotes a pure context to one able to do I/O.
-promoteContext :: NFData s => PureContext s a -> ContextT s IO a
-promoteContext ctx = do
-  st <- get
-  rules <- ask
-  gen   <- liftIO getStdGen
-  let (res, st', lg, gen') = runPureContext ctx gen rules st
-  liftIO $ setStdGen gen'
-  put $!! st'
-  tell $!! lg
   return res
 
 -- | Does a DrawContext's drawing within an IO Context.
@@ -244,7 +191,7 @@ startGameLoop :: NFData s =>
               -> s -- ^ The initial game state.
               -> GameActions s -- ^ The set of game actions.
               -> IO ()
-startGameLoop winName winW winH rules initialState actions =
+startGameLoop winName winW winH rules initialState GameActions{..} =
   evalContext go rules initialState
   where
     go = do
@@ -252,7 +199,7 @@ startGameLoop winName winW winH rules initialState actions =
       render <- liftIO $ startRender winName winW winH
 
       -- run the initialisation action if it exists
-      fromMaybe (return()) (actionInit actions)
+      fromMaybe (return()) actionInit
 
       -- get the state
       st <- get
@@ -260,16 +207,16 @@ startGameLoop winName winW winH rules initialState actions =
       -- set up our state reference
       ref <- liftIO $ newIORef st
 
-      let doMain = case actionMain actions of
+      let doMain = case actionMain of
             Just action -> liftIO $ runAction rules ref action
             Nothing -> return ()
 
-          doKeyboard = case actionKeyboard actions of
+          doKeyboard = case actionKeyboard of
             Just kbd -> Just $ \_ k -> runAction rules ref $ kbd k
             Nothing -> Nothing
 
           doDrawing =
-            case actionDraw actions of
+            case actionDraw of
               Just draw -> liftIO $ runAction rules ref (runDrawing draw render)
               Nothing -> return ()
 
@@ -281,10 +228,10 @@ startGameLoop winName winW winH rules initialState actions =
             ticks <- liftIO getTicks
             let tickTime = 1000 `div` 60
             lastTick' <- if ticks - lastTick > tickTime
-                            then do doDrawing
-                                    liftIO (drawRender render)
-                                    return (lastTick + tickTime)
-                            else return lastTick
+                         then do doDrawing
+                                 liftIO (drawRender render)
+                                 return (lastTick + tickTime)
+                         else return lastTick
             q <- liftIO $ windowShouldClose (renderDataWin render)
             unless q (mainLoop lastTick')
       mainLoop 0
