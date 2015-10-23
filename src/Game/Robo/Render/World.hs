@@ -9,13 +9,21 @@ Portability : non-portable
 
 -}
 
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE RankNTypes      #-}
+
 module Game.Robo.Render.World where
 
-import Lens.Micro.Platform
+import           Control.Monad.Reader
+import qualified Data.Vector          as V
+import           Lens.Micro.Platform
 
-import Game.Robo.Core
-import Game.Robo.Render
-import Game.Robo.Render.Bot
+import           Game.Robo.Core
+import           Game.Robo.Render
+import           Game.Robo.Render.Bot
+
+ws :: MonadReader (b, WorldState) m => Lens' WorldState a -> m a
+ws l = view (_2.l)
 
 drawBullet :: Bullet -> DrawWorld ()
 drawBullet bul = do
@@ -27,16 +35,13 @@ drawBullet bul = do
 
 drawWorld :: DrawWorld ()
 drawWorld = do
-    -- liftIO . void $ fillRect surface Nothing (Pixel 0xFF100808)
+  botStates <- ws wldBots
+  (rules, _) <- ask
+  mapM_ (\botState -> runReaderT drawBot (rules, botState)) botStates
 
-    -- bots <- use wldBots
-    -- let drawBot' bot = applyBot (bot^.botID) drawBot
-    -- mapM_ drawBot' bots
-    zoom (wldBots.traverse) drawBot
+  buls <- ws wldBullets
+  mapM_ drawBullet buls
 
-    buls <- use wldBullets
-    mapM_ drawBullet buls
+  Vec w h <- ru ruleArenaSize
 
-    Vec w h <- view ruleArenaSize
-
-    drawPoly (colourWord 0xFFFFFF) [Vec 0 0, Vec 0 h, Vec w h, Vec w 0]
+  drawPoly (colourWord 0xFFFFFF) (V.fromList [Vec 0 0, Vec 0 h, Vec w h, Vec w 0])

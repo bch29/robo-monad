@@ -10,14 +10,16 @@ Portability : non-portable
 These are defined in their own file to avoid module import cycles.
 -}
 
+{-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE UnicodeSyntax              #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 module Game.Robo.Core.Types
   ( Rules (..)
@@ -42,19 +44,22 @@ module Game.Robo.Core.Types
 
   , BotUpdate (..), BotResponse (..)
 
+  , StB, StW, Ru, Ra, Wr, MIO
+
+  , module Many
   , module Game.Robo.Core.Types.Maths
   ) where
 
+import           Control.Concurrent
+import           Control.DeepSeq
+import           Control.Monad.Free.Church   (F (..), liftF)
 import           Control.Monad.Random
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Control.Monad.Writer.Strict
+import           GHC.Generics                (Generic)
 
-import           Control.Concurrent
-import           Control.DeepSeq
-import           Control.Monad.Free
-import           Data.Vector
-
+import           Game.Robo.Core.Many.Vector  as Many
 import           Game.Robo.Core.Types.Maths
 import           Game.Robo.Render
 
@@ -131,24 +136,24 @@ data Rules = Rules
 
 -- | The main Robo Monad. Parameterised by user state. Newtyped for better type
 -- errors.
-newtype Robo s a = Robo (Free (RoboF s) a)
+newtype Robo s a = Robo (F (RoboF s) a)
 
 deriving instance Functor (Robo s)
 deriving instance Applicative (Robo s)
 deriving instance Monad (Robo s)
 
--- | The functor used for the free monad representation of robots.
+-- | The functor used for the free monad representation of robot actions.
 data RoboF s a where
-  GetUStateR :: (s → a)                       → RoboF s a
-  PutUStateR :: s → a                         → RoboF s a
-  GetIStateR :: (BotState → a)                → RoboF s a
-  PutIStateR :: BotState → a                  → RoboF s a
-  RulesR     :: (Rules → a)                   → RoboF s a
-  LogR       :: String → a                    → RoboF s a
-  RandVR     :: Random r ⇒            (r → a) → RoboF s a
-  RandsVR    :: Random r ⇒          ([r] → a) → RoboF s a
-  RandIR     :: Random r ⇒ (r, r) →   (r → a) → RoboF s a
-  RandsIR    :: Random r ⇒ (r, r) → ([r] → a) → RoboF s a
+  GetUStateR :: (s -> a)                         -> RoboF s a
+  PutUStateR :: s -> a                           -> RoboF s a
+  GetIStateR :: (BotState -> a)                  -> RoboF s a
+  PutIStateR :: BotState -> a                    -> RoboF s a
+  RulesR     :: (Rules -> a)                     -> RoboF s a
+  LogR       :: String -> a                      -> RoboF s a
+  RandVR     :: Random r =>           (r   -> a) -> RoboF s a
+  RandsVR    :: Random r =>           ([r] -> a) -> RoboF s a
+  RandIR     :: Random r => (r, r) -> (r   -> a) -> RoboF s a
+  RandsIR    :: Random r => (r, r) -> ([r] -> a) -> RoboF s a
 
 deriving instance Functor (RoboF s)
 
@@ -174,7 +179,7 @@ type DrawWorld = DrawContext WorldState
 type PureContext s = ContextT s (Rand StdGen)
 
 -- | A context that can draw.
-type DrawContext s = ContextT s (RandT StdGen Draw)
+type DrawContext s = ReaderT (Rules, s) Draw
 
 -- | A lot of computations take place within this context, with a Writer
 -- for logging, a Reader to keep track of the battle rules and a Rand for
@@ -182,6 +187,26 @@ type DrawContext s = ContextT s (RandT StdGen Draw)
 -- the outer layer so that we can easily strip off a BotState and replace
 -- it with a WorldState to 'promote' Bot to World.
 type ContextT s m = StateT s (WriterT String (ReaderT Rules m))
+
+-- Here we define some aliases for typeclass constraints that are used a lot.
+type StB = MonadState BotState
+type StW = MonadState WorldState
+type Ru  = MonadReader Rules
+type Ra  = MonadRandom
+type Wr  = MonadWriter String
+type MIO = MonadIO
+
+-- newtype StateReader m a = StateReader { runStateReader :: m a }
+--                                       deriving (Functor, Applicative, Monad)
+
+-- instance (MonadReader r m, MonadState s m) => MonadReader (s, r) (StateReader m) where
+--   ask = StateReader ((,) <$> get <*> ask)
+--   local f m = StateReader $ do
+--     prev <- get
+--     put (f prev)
+--     res <- local f (runStateReader m)
+--     put prev
+--     return res
 
 ---------------------------------
 --  Main Game Engine
@@ -196,7 +221,7 @@ data GameActions s = GameActions
     -- | The action that that is called when it is time to render the frame.
   , actionDraw     :: Maybe (DrawContext s ())
     -- | The action that is called when a key is pressed.
-  , actionKeyboard :: Maybe (Char → ContextT s IO ())
+  , actionKeyboard :: Maybe (Char -> ContextT s IO ())
   }
 
 ---------------------------------
@@ -205,18 +230,19 @@ data GameActions s = GameActions
 
 -- | State information for the world in which the battle is taking place.
 data WorldState = WorldState
-  { _wldBullets      :: !(Vector Bullet)   -- The bullets fired by robots.
-  , _wldBots         :: !(Vector BotState) -- The robots themselves.
+  { _wldBullets      :: !(Many Bullet)   -- The bullets fired by robots.
+  , _wldBots         :: !(Many BotState) -- The robots themselves.
   , _wldRect         :: !Rect       -- Represents the size of the arena.
   , _wldTime0        :: !Int        -- The time when the SPS was last changed.
   , _wldTime         :: !Int        -- The time in milliseconds since simulation started.
   , _wldStepsDone    :: !Int        -- The number of steps done since the SPS was last changed.
   , _wldSPS          :: !Int        -- The current number of steps per second.
   , _wldSinceTick    :: !Int        -- The number of steps that have passed since the last tick.
-  , _wldUpdateChans  :: !(Vector (Chan BotUpdate)) -- The channels along which the world sends update requests to the bots.
+  , _wldUpdateChans  :: !(Many (Chan BotUpdate)) -- The channels along which the world sends update requests to the bots.
      -- The channel along which the bots send update responses to the world.
   , _wldResponseChan :: Maybe (Chan BotResponse)
   }
+  deriving (Generic)
 
 ---------------------------------
 --  Robot State
@@ -241,6 +267,7 @@ data BotState = BotState
   , _botEnergy    :: !Scalar     -- The current energy the robot has available.
   , _botLife      :: !Scalar     -- The amount of life left in the robot.
   }
+  deriving (Generic)
 
 -- | Specifies a robot's behaviour.
 data BotSpec = forall s. BotSpec -- Note [ExistentialQuantification]
@@ -254,13 +281,13 @@ data BotSpec = forall s. BotSpec -- Note [ExistentialQuantification]
   -- | Executed when a game tick passes.
   , onTick          :: Robo s ()
   -- | Executed when the radar scans another bot.
-  , onScan          :: ScanData → Robo s ()
+  , onScan          :: ScanData -> Robo s ()
   -- | Executed when this robot is hit by an enemy bullet.
   , onHitByBullet   :: Robo s ()
   -- | Executed when a bullet fired by this robot hits a target.
   , onBulletHit     :: Robo s ()
   -- | Executed when the robot collides with a wall.
-  , onCollideWall   :: WallCollisionData → Robo s ()
+  , onCollideWall   :: WallCollisionData -> Robo s ()
   }
 
 {-
@@ -284,12 +311,14 @@ data GunState = GunState
   , _gunAngVel  :: !Scalar -- The speed at which the gun is turning.
   , _gunFiring  :: !Scalar -- If 0, not firing. Otherwise, the power of the next shot.
   }
+  deriving (Generic)
 
 -- | A robot's radar state.
 data RadarState = RadarState
   { _radHeading :: !Angle  -- The direction relative to the robot that the radar is facing.
   , _radAngVel  :: !Scalar -- The speed at which the radar is turning.
   }
+  deriving (Generic)
 
 -- | Data received from scanning an enemy robot.
 data ScanData = ScanData
@@ -318,6 +347,7 @@ data Bullet = Bullet
   , _bulPower :: !Scalar -- The bullet's fire power.
   , _bulOwner :: !BotID  -- The ID of the robot that fired the bullet.
   }
+  deriving (Generic, Eq, Ord)
 
 -- | Information about a bullet collision.
 data BulletCollision = BulletCollision
@@ -325,6 +355,7 @@ data BulletCollision = BulletCollision
   , _bcolVictim    :: !BotID  -- The ID of the robot that was hit by the bullet.
   , _bcolPower     :: !Scalar -- The power that the bullet was fired with.
   }
+  deriving (Generic)
 
 ---------------------------------
 --  Thread Communication
@@ -335,28 +366,35 @@ data BotUpdate = BotUpdate
   , updateWorld            :: !WorldState        -- The world state at the start of the update.
   , updatePassed           :: !Double            -- The amount of time since the last update.
   , updateDoTick           :: !Bool              -- Should the robot run its onTick?
-  , updateBulletCollisions :: !(Vector BulletCollision) -- Was the robot hit by a bullet?
+  , updateBulletCollisions :: !(Many BulletCollision) -- Was the robot hit by a bullet?
   }
+  deriving (Generic)
 
 data BotResponse = BotResponse
   { responseID      :: !BotID    -- The ID of the robot responding.
   , responseState   :: !BotState -- The new state of the robot after an update.
-  , responseBullets :: !(Vector Bullet) -- The bullets fired by the robot during the update.
+  , responseBullets :: !(Many Bullet) -- The bullets fired by the robot during the update.
   }
+  deriving (Generic)
 
 ---------------------------------
 --  Instances
 ---------------------------------
 
-instance NFData Bullet where
-  rnf bul = rnf (_bulVel bul)
-      `seq` rnf (_bulPos bul)
-
-instance NFData BotState where
-  rnf bot = rnf (_botPos bot)
-
 instance NFData WorldState where
-  rnf wld = wld `seq` ()
+  rnf WorldState{..} =
+    _wldBullets `deepseq`
+    _wldBots `deepseq`
+    ()
+
+instance NFData Bullet
+instance NFData RadarState
+instance NFData GunState
+instance NFData BotState
+-- instance NFData WorldState
+instance NFData BulletCollision
+instance NFData BotUpdate
+instance NFData BotResponse
 
 -- We choose to instantiate 'MonadState' for the user state rather than the
 -- internal state because the latter is not too sorely needed here and this way

@@ -12,13 +12,17 @@ can be re-exported to the user. We make lenses here
 for the same reason.
 -}
 
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TemplateHaskell       #-}
 
 module Game.Robo.Core.Types.Maths where
 
-import Lens.Micro.Platform
-import Control.DeepSeq
-import Control.Monad.Random
+import           Control.Applicative  (liftA, liftA2)
+import           Control.DeepSeq
+import           Control.Monad.Random
+import           Data.Foldable        (fold)
+import           Lens.Micro.Platform
 
 ---------------------------------
 --  Core Types
@@ -31,10 +35,13 @@ type Scalar = Double
 type Angle = Double
 
 -- | A two-dimensional vector quantity.
-data Vec = Vec
-  { _vX :: !Scalar
-  , _vY :: !Scalar
+data GVec a = Vec
+  { _vX :: !a
+  , _vY :: !a
   }
+  deriving (Eq, Ord)
+
+type Vec = GVec Scalar
 
 -- | A rectangle with a centre, size and angle (to the horizontal).
 data Rect = Rect
@@ -47,24 +54,21 @@ data Rect = Rect
 --  Basic functions on vectors
 ---------------------------------
 
-instance Num Vec where
-  (Vec a b) + (Vec x y) = Vec (a + x) (b + y)
+instance Num a => Num (GVec a) where
+  (+) = liftA2 (+)
   -- dot product seems the only sensible definition
-  (Vec a b) * (Vec x y) = Vec (a * x) (b * y)
-  negate (Vec x y) = Vec (-x) (-y)
+  (*) = liftA2 (*)
+  negate = fmap negate
   -- it would be nice if this could do vector magnitude, but it has to
   -- return another vector
-  abs (Vec x y) = Vec (abs x) (abs y)
-  signum (Vec x y) = Vec (signum x) (signum y)
-  fromInteger i = Vec x x where x = fromInteger i
-
-instance Eq Vec where
-  Vec a b == Vec x y = a == x && b == y
+  abs = fmap abs
+  signum = fmap signum
+  fromInteger = pure . fromInteger
 
 -- This is only really used for @fromRational@.
-instance Fractional Vec where
-  (Vec a b) / (Vec x y) = Vec (a / x) (b / y)
-  fromRational r = Vec x x where x = fromRational r
+instance Fractional a => Fractional (GVec a) where
+  (/) = liftA2 (/)
+  fromRational = pure . fromRational
 
 -- Functions to multiply vectors by scalars are very handy.
 
@@ -72,18 +76,31 @@ infixr 7 *|
 infixl 7 |*
 
 -- | Multiply a vector by a scalar on the left.
-(*|) :: Scalar -> Vec -> Vec
-a *| Vec x y = Vec (a * x) (a * y)
+(*|) :: Num a => a -> GVec a -> GVec a
+(*|) a = fmap (a *)
 
 -- | Multiply a vector by a scalar on the right.
-(|*) :: Vec -> Scalar -> Vec
-Vec x y |* a = Vec (x * a) (y * a)
+(|*) :: Num a => GVec a -> a -> GVec a
+(|*) = flip (*|)
 
 ---------------------------------
 --  Other Instances
 ---------------------------------
 
-instance Show Vec where
+instance Functor GVec where
+  fmap = liftA
+
+instance Applicative GVec where
+  pure x = Vec x x
+  Vec f g <*> Vec x y = Vec (f x) (g y)
+
+instance Foldable GVec where
+  foldMap f (Vec x y) = f x `mappend` f y
+
+instance Traversable GVec where
+  traverse f (Vec x y) = Vec <$> f x <*> f y
+
+instance Show a => Show (GVec a) where
   showsPrec prec (Vec x y) =
     showString "Vec " .
     showsPrec prec x .
@@ -96,7 +113,7 @@ instance Show Rect where
           svec vec = showParen True $ showsPrec (prec + 1) vec
           spc = (' ':)
 
-instance Random Vec where
+instance Random a => Random (GVec a) where
   random gen = (Vec x y, gen'')
     where (x, gen')  = random gen
           (y, gen'') = random gen'
@@ -105,15 +122,15 @@ instance Random Vec where
     where (x, gen')  = randomR (x1, x2) gen
           (y, gen'') = randomR (y1, y2) gen'
 
-instance NFData Vec where
-  rnf vec = vec `seq` ()
+instance NFData a => NFData (GVec a) where
+  rnf v = v `seq` (fold . fmap rnf) v
 
 instance NFData Rect where
-  rnf rect = rect `seq` ()
+  rnf r@(Rect p1 p2 a) = r `seq` rnf p1 `seq` rnf p2 `seq` rnf a
 
 ---------------------------------
 --  Lenses
 ---------------------------------
 
-makeLenses ''Vec
+makeLenses ''GVec
 makeLenses ''Rect

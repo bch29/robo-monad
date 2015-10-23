@@ -9,32 +9,26 @@ Portability : non-portable
 
 -}
 
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE UnicodeSyntax   #-}
-{-# LANGUAGE FlexibleContexts   #-}
-{-# LANGUAGE ConstraintKinds    #-}
-{-# LANGUAGE PartialTypeSignatures    #-}
+{-# LANGUAGE ConstraintKinds       #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE UnicodeSyntax         #-}
 
 module Game.Robo.Core.Bot where
 
-import           Lens.Micro.Platform
-
 import           Control.Concurrent
-
+import           Control.DeepSeq
 import           Control.Monad
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Control.Monad.Writer.Strict
-
-import           Data.List hiding (any, null)
+import           Data.List
 import           Data.Ord
-import qualified Data.Vector as V
-import           Data.Vector (Vector)
+import           Lens.Micro.Platform
 
 import           Game.Robo.Core
 import           Game.Robo.Maths
-
-type PureBot m = (MonadState BotState m, MonadReader Rules m)
 
 initialBotState ::  Scalar -> Scalar -> BotID -> Vec -> BotState
 initialBotState life mass bid pos = BotState
@@ -62,7 +56,7 @@ initialBotState life mass bid pos = BotState
 
 -- | Returns the 'Rect' surrounding the robot (with its axis aligned with the
 -- robot's heading direction).
-botRect :: MonadReader Rules m => BotState -> m Rect
+botRect :: Ru m => BotState -> m Rect
 botRect botState = do
   sz  <- asks (view ruleBotSize)
   let ang = botState^.botHeading
@@ -72,7 +66,7 @@ botRect botState = do
 -- | Is the robot colliding with a wall, and if so which wall?
 -- The wall is indicated by its direction (i.e. @Vec 1 0@ for the
 -- right wall).
-tryCollideWall :: PureBot m => Rect -> m (Maybe WallCollisionData)
+tryCollideWall :: (Ru m, StB m) => Rect -> m (Maybe WallCollisionData)
 tryCollideWall arenaRect = do
   rect <- botRect =<< get
   let crs = rectCornersOutside arenaRect rect
@@ -94,7 +88,7 @@ tryCollideWall arenaRect = do
 -- | Calculate the robot's new position after some time has passed.
 -- Approximates many integrals. Returns the wall collision data if
 -- a wall was hit.
-stepBotMotion :: PureBot m => Double -> WorldState -> m (Maybe WallCollisionData)
+stepBotMotion :: (Ru m, StB m) => Double -> WorldState -> m (Maybe WallCollisionData)
 stepBotMotion passed worldState = do
   driveFric <- asks (view ruleDriveFriction)
   turnFric  <- asks (view ruleTurnFriction)
@@ -135,7 +129,7 @@ stepBotMotion passed worldState = do
 -- | If it is possible to fire with the amount of energy we have,
 -- create a bullet moving away from the end of the robot's gun,
 -- subtract the energy cost, and set the firepower back to 0.
-fireBullet :: PureBot m => m (Vector Bullet)
+fireBullet :: (Ru m, StB m) => m (Many Bullet)
 fireBullet = do
   energy <- use botEnergy
   firing <- use (botGun.gunFiring)
@@ -156,12 +150,12 @@ fireBullet = do
 
     botGun.gunFiring .= 0
     botEnergy .= (energy - firing)
-    return (V.singleton bul)
+    return (pure bul)
   else
     return mempty
 
 -- | Update the robot's gun, returning a list of newly fired bullets.
-stepBotGun :: PureBot m => Double -> Bool -> m (Vector Bullet)
+stepBotGun :: (Ru m, StB m) => Double -> Bool -> m (Many Bullet)
 stepBotGun passed doTick = do
   -- motion
   gunFric <- asks (view ruleGunFriction)
@@ -182,7 +176,7 @@ stepBotGun passed doTick = do
      else return mempty
 
 -- | Deal with energy regeneration.
-stepBotEnergy :: PureBot m => Double -> m ()
+stepBotEnergy :: (Ru m, StB m) => Double -> m ()
 stepBotEnergy passed = do
   energy <- use botEnergy
   maxEnergy <- asks (view ruleMaxEnergy)
@@ -193,13 +187,13 @@ stepBotEnergy passed = do
      else botEnergy .= maxEnergy
 
 -- | Update the motion of the robot's radar.
-stepBotRadar :: PureBot m => Double -> m ()
+stepBotRadar :: (Ru m, StB m) => Double -> m ()
 stepBotRadar passed = do
   vel <- use (botRadar.radAngVel)
   botRadar.radHeading += vel * passed
 
 -- | Scans for other robots within this robot's field of view.
-tryScan :: PureBot m => Vector BotState -> m (Maybe ScanData)
+tryScan :: (Ru m, StB m) => Many BotState -> m (Maybe ScanData)
 tryScan bots = do
   pos   <- use botPos
   bid   <- use botID
@@ -215,9 +209,11 @@ tryScan bots = do
       -- get all bots within the scan segment
       isInScanSegment = inSegmentCentre minAngle maxAngle range pos . view botPos
 
-      filterScannable = V.filter (\b -> isNotUs b && isInScanSegment b)
+      filterScannable = filterMany (\b -> isNotUs b && isInScanSegment b)
       -- sort by distance
-      sortByDistance  = sortBy (comparing (vecMag . subtract pos . view botPos)) . V.toList
+      sortByDistance  =
+        sortBy (comparing (vecMag . subtract pos . view botPos)) .
+        manyToList
 
   -- return the closet bot, if it exists
   return $ case sortByDistance . filterScannable $ bots of
@@ -229,13 +225,13 @@ tryScan bots = do
     _       -> Nothing
 
 -- | Tests if a bullet has hit the robot, and returns True if so.
-testBulletHit :: MonadReader Rules m => BotState -> Bullet -> m Bool
+testBulletHit :: Ru m => BotState -> Bullet -> m Bool
 testBulletHit botState bul = do
   box <- botRect botState
   let bid = botState^.botID
       bpos = bul^.bulPos
       owner = bul^.bulOwner
-  return $ owner /= bid && withinRect bpos box
+  return $ owner /= bid && withinRect box bpos
 
 -- | Print a log from a robot with the given name to the console.
 writeLog :: String -> [String] -> IO ()
@@ -269,10 +265,10 @@ botMain spec updateChan responseChan =
 
             let wasAggressor col = col^.bcolAggressor == bid
                 wasVictim    col = col^.bcolVictim    == bid
-                victimCollisions = V.filter wasVictim updateBulletCollisions
+                victimCollisions = filterMany wasVictim updateBulletCollisions
                 bulletHit = any wasAggressor updateBulletCollisions
-                wasHit    = not (V.null victimCollisions)
-                damageReceived = V.sum . V.map (view bcolPower) $ victimCollisions
+                wasHit    = not (null victimCollisions)
+                damageReceived = sum . fmap (view bcolPower) $ victimCollisions
 
             when wasHit $ botLife -= damageReceived
 
@@ -303,7 +299,7 @@ botMain spec updateChan responseChan =
 
             -- send our new state, and any bullets fired, back to the main thread
             botState' <- get
-            liftIO $ writeChan responseChan BotResponse
+            liftIO $ botState' `deepseq` writeChan responseChan BotResponse
               { responseID      = bid
               , responseState   = botState'
               , responseBullets = bullets }

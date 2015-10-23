@@ -12,6 +12,8 @@ Portability : non-portable
 {-# LANGUAGE Trustworthy            #-} -- Enables compilation of robot files with Safe Haskell.
 {-# LANGUAGE MultiParamTypeClasses  #-} -- Necessary for Pidable typeclass.
 {-# LANGUAGE FunctionalDependencies #-} -- Necessary for Pidable typeclass.
+{-# LANGUAGE FlexibleInstances      #-} -- Necessary for Pidable GVec instance.
+
 module Game.Robo.PID.Class where
 
 import Game.Robo.Core.Types.Maths
@@ -31,7 +33,7 @@ instance Pidable Double Double where
   magnitude = abs
   pidZero   = 0
 
-instance Pidable Double Vec where
+instance Floating a => Pidable a (GVec a) where
   mulScalar = (*|)
   pidDiff   = (-)
   pidSum    = (+)

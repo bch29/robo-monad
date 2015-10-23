@@ -9,80 +9,91 @@ Portability : non-portable
 
 -}
 
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE RankNTypes      #-}
+
 module Game.Robo.Render.Bot where
 
-import Lens.Micro.Platform
+import           Control.Monad.Reader
+import qualified Data.Vector          as V
+import           Lens.Micro.Platform
 
-import Control.Monad.Reader
+import           Game.Robo.Core
+import           Game.Robo.Maths
+import           Game.Robo.Render
 
-import Game.Robo.Core
-import Game.Robo.Maths
-import Game.Robo.Render
+type RenderBot m = (MonadReader (Rules, BotState) m, MonadDraw m)
 
-drawRect :: Colour -> Rect -> DrawBot ()
+ru :: MonadReader (Rules, b) m => Lens' Rules a -> m a
+ru l = view (_1.l)
+
+bs :: MonadReader (b, BotState) m => Lens' BotState a -> m a
+bs l = view (_2.l)
+
+drawRect :: RenderBot m => Colour -> Rect -> m ()
 drawRect col box =
-  drawPoly col (rectCorners box)
+  drawPoly col (V.fromList $ rectCorners box)
 
-botRect :: DrawBot Rect
+botRect :: RenderBot m => m Rect
 botRect = do
-  sz <- asks (view ruleBotSize)
-  ang <- use botHeading
-  pos <- use botPos
+  sz <- ru ruleBotSize
+  ang <- bs botHeading
+  pos <- bs botPos
   return $ Rect pos sz ang
 
-gunRect :: DrawBot Rect
+gunRect :: RenderBot m => m Rect
 gunRect = do
-  sz <- asks (view ruleGunSize)
-  botAng <- use botHeading
-  gunAng <- (botAng +) <$> use (botGun.gunHeading)
+  sz <- ru ruleGunSize
+  botAng <- bs botHeading
+  gunAng <- (botAng +) <$> bs (botGun.gunHeading)
   let dir = vecFromAngle gunAng
       offset = dir |* (sz^.vX) * 0.5
-  pos <- (+ offset) <$> use botPos
+  pos <- (+ offset) <$> bs botPos
   return $ Rect pos sz gunAng
 
-radarRect :: DrawBot Rect
+radarRect :: RenderBot m => m Rect
 radarRect = do
-  sz <- asks (view ruleRadarSize)
-  botAng <- use botHeading
-  radAng <- (botAng +) <$> use (botRadar.radHeading)
+  sz <- ru ruleRadarSize
+  botAng <- bs botHeading
+  radAng <- (botAng +) <$> bs (botRadar.radHeading)
   let dir = vecFromAngle radAng
       offset = dir |* (sz^.vX) * 0.5
-  pos <- (+ offset) <$> use botPos
+  pos <- (+ offset) <$> bs botPos
   return $ Rect pos sz radAng
 
-drawChassis :: DrawBot ()
+drawChassis :: RenderBot m => m ()
 drawChassis = do
   box <- botRect
   drawRect (colour 0x99 0xFF 0xFF) box
 
-drawGun :: DrawBot ()
+drawGun :: RenderBot m => m ()
 drawGun = do
   box <- gunRect
   drawRect (colour 0xFF 0xFF 0xAA) box
 
-drawRadar :: DrawBot ()
+drawRadar :: RenderBot m => m ()
 drawRadar = do
   box <- radarRect
-  pos <- use botPos
+  pos <- bs botPos
   let [a, b, _, _] = rectCorners box
-  drawPoly (colour 0xFF 0xFF 0x88) [a, b, pos]
+  drawPoly (colour 0xFF 0xFF 0x88) (V.fromList [a, b, pos])
 
-drawLife :: DrawBot ()
+drawLife :: RenderBot m => m ()
 drawLife = do
-  life <- use botLife
+  life <- bs botLife
 
-  maxL <- asks (view ruleMaxLife)
-  off <- asks (view ruleLifebarOffset)
-  (Vec maxw h) <- asks (view ruleLifebarSize)
+  maxL <- ru ruleMaxLife
+  off <- ru ruleLifebarOffset
+  (Vec maxw h) <- ru ruleLifebarSize
 
-  pos <- (+ off) <$> use botPos
+  pos <- (+) <$> bs botPos <*> pure off
   let life' = if life < 0 then 0 else life
       rp = (maxL - life') / maxL
       gp = life / (maxL / 2)
       box = Rect pos (Vec (maxw * life' / maxL) h) 0
   drawRect (colour (round $ rp * 255) (round $ gp * 255) 0x00) box
 
-drawBot :: DrawBot ()
+drawBot :: RenderBot m => m ()
 drawBot = do
   drawChassis
   drawGun

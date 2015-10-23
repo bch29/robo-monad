@@ -157,7 +157,14 @@ interpretDraw :: DrawF (IO a) -> IO a
 interpretDraw (DrawF obj m) = do doDrawObject obj; m
 
 doDraw :: Draw () -> IO ()
-doDraw (Draw draw) = iterM interpretDraw draw
+-- doDraw (Draw draw) = iterM interpretDraw draw
+doDraw _ =
+  do let randomVec =
+           do x <- getRandomR (0 :: Double, 1)
+              y <- getRandomR (0, 1)
+              return (Vec x y)
+     color (colour 255 0 0)
+     GL.renderPrimitive GL.LineLoop $ replicateM_ 1000 (GL.vertex . vecToVert =<< randomVec)
 
 -- | The function to actually do the displaying
 -- display :: IORef (Vector3 GLfloat, GLfloat, GLfloat) -> RenderData -> IO ()
@@ -174,7 +181,7 @@ drawRender (RenderData win drawVar) = do
   doDraw =<< readIORef drawVar
 
   writeIORef drawVar (return ())
-  swapBuffers win
+  GL.swapBuffers win
   flush
 
 -- | The GLUT reshape callback function.
@@ -193,14 +200,6 @@ drawRender (RenderData win drawVar) = do
 startRender :: String -> Int -> Int -> IO RenderData
 startRender windowName width height = do
   _ <- GL.init
-
-  let hints = [ WindowHint'Resizable False
-              , WindowHint'Samples 4
-              , WindowHint'Decorated False
-              ]
-
-  mapM_ windowHint hints
-
   (Just w) <- createWindow (fromIntegral width) (fromIntegral height) windowName Nothing Nothing
   makeContextCurrent (Just w)
 

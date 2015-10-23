@@ -29,7 +29,6 @@ tags
 
 # stack
 /.stack*
-/stack*
 
 # build scripts
 /build

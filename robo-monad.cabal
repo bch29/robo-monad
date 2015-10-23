@@ -14,14 +14,16 @@ cabal-version:       >=1.10
 executable robo-demo
   main-is:             Main.hs
   other-modules:       WallHugger, ExampleBot, Crazy, BulletTester
-  build-depends:       base >=4.6 && <5, robo-monad
+  build-depends:       base >=4.6 && <5
+                     , robo-monad
   hs-source-dirs:      demo
   default-language:    Haskell2010
   other-extensions:    TemplateHaskell, GeneralizedNewtypeDeriving
   ghc-options: -O2
                -threaded
+               -eventlog
                -rtsopts
-               "-with-rtsopts=-N -h"
+               "-with-rtsopts=-N4 -ls"
 
 library
   exposed-modules:
@@ -35,7 +37,10 @@ library
   other-modules:
     Game.Robo.Core.Types.Maths,
     Game.Robo.Core.Types,
+    Game.Robo.Core.Many.List,
+    Game.Robo.Core.Many.Vector,
     Game.Robo.Core.Lenses,
+    Game.Robo.Core.Collision,
     Game.Robo.Core.Rules,
     Game.Robo.Core,
     Game.Robo.Core.World,
@@ -44,19 +49,22 @@ library
     Game.Robo.Render.Bot,
     Game.Robo.Render
 
-  build-depends:
-                  GLFW-b
-                , MonadRandom
-                , OpenGL
-                , array
-                , base >=4.6 && <5
-                , deepseq
-                , free
-                , free
-                , microlens-platform
-                , mtl
-                , random
-                , vector
+  build-depends: GLFW-b
+               , MonadRandom
+               , OpenGL
+               , OpenGLRaw
+               , array
+               , base >= 4.8 && <5
+               , containers >= 0.5 && < 0.6
+               , deepseq >= 1.4
+               , free
+               , microlens-platform
+               , mtl
+               , parallel >= 3.2 && < 4
+               , random
+               , transformers >= 0.4.2.0 && < 0.5
+               , vector
+               , vector-strategies
   hs-source-dirs:      src
   default-language:    Haskell2010
   default-extensions:  FlexibleContexts, RecordWildCards

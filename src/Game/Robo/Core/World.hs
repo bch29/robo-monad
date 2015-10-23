@@ -9,37 +9,35 @@ Portability : non-portable
 
 -}
 
+{-# LANGUAGE ConstraintKinds           #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts          #-}
-{-# LANGUAGE UnicodeSyntax             #-}
-{-# LANGUAGE RecordWildCards           #-}
-{-# LANGUAGE ConstraintKinds           #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE RecordWildCards           #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
 
 module Game.Robo.Core.World (runWorld) where
 
-import           Lens.Micro.Platform
-
 import           Control.Concurrent
-
-import           Control.Monad          hiding (mapM, mapM_)
+import           Control.DeepSeq
+import           Control.Monad
 import           Control.Monad.Random
-import           Control.Monad.Reader   hiding (mapM, mapM_)
-import           Control.Monad.State    hiding (mapM, mapM_)
-
+import           Control.Monad.Reader
+import           Control.Monad.State
+import           Control.Parallel.Strategies
 import           Data.Array.IO
-
-import           Data.Either
 import           Data.Maybe
-import           Data.Vector            (Vector)
-import qualified Data.Vector            as V
+import           Data.Set                    (Set)
+import qualified Data.Set                    as S
+import           Lens.Micro.Platform
 
 import           Game.Robo.Core
 import           Game.Robo.Core.Bot
+import           Game.Robo.Core.Collision
+import           Game.Robo.Maths
 import           Game.Robo.Render
 import           Game.Robo.Render.World
-
-type FullWorld m = (MonadIO m, MonadState WorldState m, MonadReader Rules m, MonadRandom m)
 
 -- | Move a bullet along.
 updateBullet :: Double -> Bullet -> Bullet
@@ -56,56 +54,65 @@ isBulletInArena size bul =
 -- | Moves all the bullets along, and removes them if they are outside
 -- the arena bounds.
 stepBullets
-  :: (MonadState WorldState m, MonadReader Rules m) => Double -> m ()
+  :: (StW m, Ru m) => Double -> m ()
 stepBullets passed = do
+  size <- view ruleArenaSize
   bullets <- use wldBullets
-  size <- asks (view ruleArenaSize)
-  let bullets' = V.filter (isBulletInArena size) . V.map (updateBullet passed) $ bullets
-  wldBullets .= bullets'
+  let stepped = updateBullet passed <$> bullets `using` parMany
+      filteredBuls = filterMany (isBulletInArena size) stepped `using` parMany
+  wldBullets .= filteredBuls
 
-vecPartitionEithers :: Vector (Either a b) -> (Vector a, Vector b)
-vecPartitionEithers vec = (V.map getLeft  . V.filter isLeft  $ vec,
-                           V.map getRight . V.filter isRight $ vec)
-  where getRight (Right x) = x
-        getRight _ = error "getRight on Left _"
-        getLeft (Left x) = x
-        getLeft _ = error "getLeft on Right _"
+listToSet :: Ord a => Many a -> Set a
+listToSet = foldr S.insert mempty
+
+listFromSet :: Ord a => Set a -> Many a
+listFromSet = manyFromList . S.toList
 
 -- | Handles all bullet collisions, removing colliding bullets and returning
 -- collision data.
 handleBulletCollisions
-  :: (MonadState WorldState m, MonadReader Rules m) =>
-     m (Vector BulletCollision)
+  :: (StW m, Ru m) =>
+     m (Many BulletCollision)
 handleBulletCollisions = do
-  let -- tests for a single bullet whether it has hit the bot in question
-      test botState bul = (,) bul <$> testBulletHit botState bul
-      maybeCollision bid (bul, True) =
-        Right (BulletCollision (bul^.bulOwner) bid (bul^.bulPower))
-      maybeCollision _ (bul, False) = Left bul
+  minSize <- vecMag <$> view ruleBotSize
+  arenaSize <- view ruleArenaSize
+  bullets <- use wldBullets
+  let entities = pointEntity (view bulPos) <$> bullets
+      grid = entityGrid minSize arenaSize (listToVector entities)
+
       checkForBot botState = do
-        bullets <- use wldBullets
-        hits <- mapM (test botState) bullets
-        let (remainingBullets, collisions) =
-              vecPartitionEithers .
-              V.map (maybeCollision (botState^.botID)) $
-              hits
-        wldBullets .= remainingBullets
+        rect <- botRect botState
+        let collidedBullets = findCollisions rect grid `using` parMany
+            collisions = mkCollision (view botID botState) <$> listFromVector collidedBullets
         return collisions
+
+      mkCollision bid bul = (bul, BulletCollision (bul^.bulOwner) bid (bul^.bulPower))
+
   botStates <- use wldBots
-  collisions <- mapM checkForBot botStates
-  return (join collisions)
+  (collidedBullets, collisions) <- unzipMany . join <$> mapM checkForBot botStates
+
+  allBullets <- use wldBullets
+  let collidedBulletSet = listToSet collidedBullets
+      allBulletSet = listToSet allBullets
+      remainingBulletsSet = allBulletSet S.\\ collidedBulletSet
+
+      remainingBullets = listFromSet remainingBulletsSet
+
+  wldBullets .= remainingBullets
+
+  return collisions
 
 -- | Removes dead bots from the game, updates other bots' IDs.
-pruneBots :: (MonadState WorldState m) => m (Vector BotState)
+pruneBots :: StW m => m (Many BotState)
 pruneBots = do
   bots <- use wldBots
   chans <- use wldUpdateChans
   let ((aliveChans, aliveBots), (_, deadBots)) =
-        V.partition ((> 0) . view botLife . snd) (V.zip chans bots) & each %~ V.unzip
+        partitionMany ((> 0) . view botLife . snd) (zipMany chans bots) & each %~ unzipMany
   -- if there are dead bots, we need to get rid of them and assign new IDs to the rest
-  if not (V.null deadBots) then do
+  if not (null deadBots) then do
     -- assign new bot IDs
-    let updated = V.imap (set botID . (+1)) aliveBots
+    let updated = imapMany (set botID . (+1)) aliveBots
     wldBots .= updated
     wldUpdateChans .= aliveChans
 
@@ -115,8 +122,8 @@ pruneBots = do
 -- | Steps the world (minus the bots) forward a tick, returns a list of
 -- bullet collisions.
 stepWorld
-  :: (MonadState WorldState m, MonadReader Rules m)
-    => Double -> m (Vector BulletCollision, Vector BotState)
+  :: (StW m, Ru m)
+    => Double -> m (Many BulletCollision, Many BotState)
 stepWorld passed = do
   deadBots <- pruneBots
   stepBullets passed
@@ -124,31 +131,33 @@ stepWorld passed = do
   return (collisions, deadBots)
 
 -- | Gets random positions within the given size for bots to start in.
-generateSpawnPositions :: MonadRandom m ⇒ Int -> Scalar -> Vec -> m (Vector Vec)
+generateSpawnPositions :: Ra m => Int -> Scalar -> Vec -> m (Many Vec)
 generateSpawnPositions count margin size =
-  V.replicateM count (getRandomR (1 |* margin, size - 1 |* (2*margin)))
+  replicateManyM count (getRandomR (1 |* margin, size - 1 |* (2*margin)))
 
 -- | Collect the responses to a request from all the robots,
 -- blocking until every robot has responded.
-collectResponses :: Chan BotResponse -> Int -> IO (Vector BotResponse)
+collectResponses :: Chan BotResponse -> Int -> IO (Many BotResponse)
 collectResponses chan numBots = do
     responses <- newArray (1, numBots) Nothing
       :: IO (IOArray BotID (Maybe BotResponse))
-    collect numBots responses
+
+    let collect 0 = return ()
+        collect n = do
+          response <- readChan chan
+          writeArray responses (responseID response) (Just response)
+          collect (n - 1)
+
+    collect numBots
+
     results <- getElems responses
-    return . V.fromList . catMaybes $ results
-  where
-    collect 0 _ = return ()
-    collect n responses = do
-      response <- readChan chan
-      writeArray responses (responseID response) (Just response)
-      collect (n - 1) responses
+    return . manyFromList . catMaybes $ results
 
 -- | Collect responses and use them to update the world state.
-updateWorldWithResponses :: FullWorld m => Chan BotResponse -> Int -> m ()
+updateWorldWithResponses :: (StW m, Ru m, MIO m) => Chan BotResponse -> Int -> m ()
 updateWorldWithResponses chan numBots = do
   responses <- liftIO $ collectResponses chan numBots
-  let newBots = V.map responseState responses
+  let newBots = fmap responseState responses
       bullets = responseBullets =<< responses
   wldBots    .= newBots
   wldBullets %= (bullets `mappend`)
@@ -158,7 +167,7 @@ getTime :: IO Int
 getTime = fromIntegral <$> getTicks
 
 -- | Change the SPS, making sure to clamp it to between the min and max.
-setSPS :: (MonadState WorldState m, MonadReader Rules m) => Int -> m ()
+setSPS :: (StW m, Ru m) => Int -> m ()
 setSPS newSPS = do
   minSPS <- asks (view ruleMinSPS)
   maxSPS <- asks (view ruleMaxSPS)
@@ -172,11 +181,11 @@ setSPS newSPS = do
   wldSPS       .= sps
 
 -- | Modify the SPS with a pure function, clamping between the min and max.
-modifySPS :: (MonadState WorldState m, MonadReader Rules m) => (Int -> Int) -> m ()
+modifySPS :: (StW m, Ru m) => (Int -> Int) -> m ()
 modifySPS f = setSPS . f =<< use wldSPS
 
 -- | The World's main logic action.
-worldMain :: FullWorld m => m ()
+worldMain :: (StW m, Ru m, Ra m, MIO m) => m ()
 worldMain = do
   -- get timing values
   time0     <- use wldTime0
@@ -218,27 +227,27 @@ worldMain = do
     -- tell the bots to update themselves
     worldState <- get
     botStates  <- use wldBots
-    let mkUpdate botState = BotUpdate
+    let mkUpdate botState = worldState `deepseq` BotUpdate
           { updateState  = botState
           , updateWorld  = worldState
           , updatePassed = passed
           , updateDoTick = doTick
           , updateBulletCollisions
-            = V.filter (wasBotInvolved (botState^.botID)) bulletCollisions
+            = filterMany (wasBotInvolved (botState^.botID)) bulletCollisions
           }
-        botUpdates = V.map mkUpdate botStates
+        botUpdates = fmap mkUpdate botStates
 
     -- get the channels out of the world state
     updateChans <- use wldUpdateChans
     Just responseChan <- use wldResponseChan
-    liftIO $ V.zipWithM_ writeChan updateChans botUpdates
+    liftIO $ zipWithManyM_ writeChan updateChans botUpdates
 
     -- get the responses back
-    numBots <- V.length <$> use wldBots
+    numBots <- length <$> use wldBots
     updateWorldWithResponses responseChan numBots
 
 -- | Handle keyboard input.
-worldKbd :: FullWorld m => Char -> m ()
+worldKbd :: (StW m, Ru m, MIO m) => Char -> m ()
 worldKbd '+' = modifySPS (+10)
 worldKbd '-' = modifySPS (subtract 10)
 worldKbd '=' = do
@@ -247,7 +256,7 @@ worldKbd '=' = do
 worldKbd _ = return ()
 
 -- | Initialise the game.
-worldInit :: FullWorld m => [BotSpec] -> m ()
+worldInit :: (StW m, Ru m, MIO m, Ra m) => [BotSpec] -> m ()
 worldInit specs = do
   -- initialise the bot states
   let numBots = length specs
@@ -256,18 +265,18 @@ worldInit specs = do
   spawnMargin <- asks (view ruleSpawnMargin)
   arenaSize   <- asks (view ruleArenaSize)
   positions   <- generateSpawnPositions numBots spawnMargin arenaSize
-  let bots = V.imap (initialBotState life mass . (+1)) positions
+  let bots = imapMany (initialBotState life mass . (+1)) positions
   wldBots .= bots
 
   -- initialise the channels
-  updateChans  <- liftIO $ V.replicateM numBots newChan
+  updateChans  <- liftIO $ replicateManyM numBots newChan
   responseChan <- liftIO newChan
 
   -- start the bot threads, each with their own update channel
   rules <- ask
   let runBot' (spec, botState, updChan) =
         runBot rules spec botState updChan responseChan
-  tids <- liftIO $ V.mapM (forkIO . runBot') (V.zip3 (V.fromList specs) bots updateChans)
+  tids <- liftIO $ mapManyM (forkIO . runBot') (zipMany3 (manyFromList specs) bots updateChans)
 
   -- make sure the world knows what time it is (Robo time!)
   time <- liftIO getTime
@@ -277,7 +286,7 @@ worldInit specs = do
   -- get the responses to initialisation
   updateWorldWithResponses responseChan numBots
   -- assign bots their thread IDs
-  wldBots %= V.zipWith (set botTID) (V.map Just tids)
+  wldBots %= zipManyWith (set botTID) (fmap Just tids)
 
   -- store the channels in the world state
   wldUpdateChans .= updateChans
