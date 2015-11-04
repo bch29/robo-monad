@@ -15,87 +15,94 @@ Portability : non-portable
 module Game.Robo.Render.Bot where
 
 import           Control.Monad.Reader
-import qualified Data.Vector          as V
 import           Lens.Micro.Platform
 
 import           Game.Robo.Core
-import           Game.Robo.Maths
 import           Game.Robo.Render
+import           Graphics.GPipe
 
-type RenderBot m = (MonadReader (Rules, BotState) m, MonadDraw m)
+mkRGB :: Int -> Int -> Int -> V3 Float
+mkRGB r g b = fmap ((/ 255.0) . fromIntegral) (V3 r g b)
 
-ru :: MonadReader (Rules, b) m => Lens' Rules a -> m a
-ru l = view (_1.l)
+rectBuf
+  :: MonadIO m
+     => V2 Float -- ^ Size
+     -> V2 Float -- ^ Offset from centre
+     -> ContextT w os f m (Buffer os (B4 Float))
+rectBuf size offset = do
+  let V2 x y = size ^/ 2
+      pts = [ V2 (-x) (-y)
+            , V2 (-x) y
+            , V2 x y
+            , V2 x (-y) ]
+      f v = V4 0 0 0 1 & _xy .~ (v + offset)
+  buf <- newBuffer 4
+  writeBuffer buf 0 (map f pts)
+  return buf
 
-bs :: MonadReader (b, BotState) m => Lens' BotState a -> m a
-bs l = view (_2.l)
+chassisBuf :: MonadIO m => Rules -> ContextT w os f m (Buffer os (B4 Float))
+chassisBuf rules = do
+  let size = realToFrac <$> view ruleBotSize rules
+  rectBuf size 0
 
-drawRect :: RenderBot m => Colour -> Rect -> m ()
-drawRect col box =
-  drawPoly col (V.fromList $ rectCorners box)
+gunBuf :: MonadIO m => Rules -> ContextT w os f m (Buffer os (B4 Float))
+gunBuf rules = do
+  let size = realToFrac <$> view ruleGunSize rules
+  let off = V2 (size^._x / 2) 0
+  rectBuf size off
 
-botRect :: RenderBot m => m Rect
-botRect = do
-  sz <- ru ruleBotSize
-  ang <- bs botHeading
-  pos <- bs botPos
-  return $ Rect pos sz ang
+radarBuf :: MonadIO m => Rules -> ContextT w os f m (Buffer os (B4 Float))
+radarBuf rules = do
+  let size = realToFrac <$> view ruleRadarSize rules
+  let V2 x y = size ^/ 2
+      pts = [0, V2 (-x) (-y), V2 (-x) y]
+      f v = V4 0 0 0 1 & _xy .~ v
+  buf <- newBuffer 3
+  writeBuffer buf 0 (map f pts)
+  return buf
 
-gunRect :: RenderBot m => m Rect
-gunRect = do
-  sz <- ru ruleGunSize
-  botAng <- bs botHeading
-  gunAng <- (botAng +) <$> bs (botGun.gunHeading)
-  let dir = vecFromAngle gunAng
-      offset = dir |* (sz^.vX) * 0.5
-  pos <- (+ offset) <$> bs botPos
-  return $ Rect pos sz gunAng
+chassisColour, gunColour, radarColour :: V3 Float
+chassisColour = mkRGB 0x99 0xFF 0xFF
+gunColour = mkRGB 0xFF 0xFF 0xAA
+radarColour = mkRGB 0xFF 0xFF 0x88
 
-radarRect :: RenderBot m => m Rect
-radarRect = do
-  sz <- ru ruleRadarSize
-  botAng <- bs botHeading
-  radAng <- (botAng +) <$> bs (botRadar.radHeading)
-  let dir = vecFromAngle radAng
-      offset = dir |* (sz^.vX) * 0.5
-  pos <- (+ offset) <$> bs botPos
-  return $ Rect pos sz radAng
+chassisInfo :: BotState -> (V2 Float, V2 Float, Float, V3 Float)
+chassisInfo = do
+  pos <- fmap realToFrac <$> view botPos
+  ang <- realToFrac <$> view botHeading
+  return (pos, V2 (cos ang) (sin ang), 1, chassisColour)
 
-drawChassis :: RenderBot m => m ()
-drawChassis = do
-  box <- botRect
-  drawRect (colour 0x99 0xFF 0xFF) box
+gunInfo :: BotState -> (V2 Float, V2 Float, Float, V3 Float)
+gunInfo = do
+  pos <- fmap realToFrac <$> view botPos
+  botAng <- realToFrac <$> view botHeading
+  gunAng <- realToFrac <$> view (botGun.gunHeading)
+  let ang = botAng + gunAng
+  return (pos, V2 (cos ang) (sin ang), 1, gunColour)
 
-drawGun :: RenderBot m => m ()
-drawGun = do
-  box <- gunRect
-  drawRect (colour 0xFF 0xFF 0xAA) box
+radarInfo :: BotState -> (V2 Float, V2 Float, Float, V3 Float)
+radarInfo = do
+  pos <- fmap realToFrac <$> view botPos
+  botAng <- realToFrac <$> view botHeading
+  radAng <- realToFrac <$> view (botRadar.radHeading)
+  let ang = botAng + radAng
+  return (pos, V2 (cos ang) (sin ang), 1, radarColour)
 
-drawRadar :: RenderBot m => m ()
-drawRadar = do
-  box <- radarRect
-  pos <- bs botPos
-  let [a, b, _, _] = rectCorners box
-  drawPoly (colour 0xFF 0xFF 0x88) (V.fromList [a, b, pos])
+-- lifeBuf :: MonadIO m => V3 Float -> ContextT w os f m (Buffer os (B4 Float))
+-- lifeBuf = do
 
-drawLife :: RenderBot m => m ()
-drawLife = do
-  life <- bs botLife
+-- drawLife :: RenderBot m => m ()
+-- drawLife = do
+--   life <- bs botLife
 
-  maxL <- ru ruleMaxLife
-  off <- ru ruleLifebarOffset
-  (Vec maxw h) <- ru ruleLifebarSize
+--   maxL <- ru ruleMaxLife
+--   off <- ru ruleLifebarOffset
+--   (Vec maxw h) <- ru ruleLifebarSize
 
-  pos <- (+) <$> bs botPos <*> pure off
-  let life' = if life < 0 then 0 else life
-      rp = (maxL - life') / maxL
-      gp = life / (maxL / 2)
-      box = Rect pos (Vec (maxw * life' / maxL) h) 0
-  drawRect (colour (round $ rp * 255) (round $ gp * 255) 0x00) box
+--   pos <- (+) <$> bs botPos <*> pure off
+--   let life' = if life < 0 then 0 else life
+--       rp = (maxL - life') / maxL
+--       gp = life / (maxL / 2)
+--       box = Rect pos (Vec (maxw * life' / maxL) h) 0
+--   drawRect (colour (round $ rp * 255) (round $ gp * 255) 0x00) box
 
-drawBot :: RenderBot m => m ()
-drawBot = do
-  drawChassis
-  drawGun
-  drawRadar
-  drawLife

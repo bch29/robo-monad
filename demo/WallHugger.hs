@@ -90,7 +90,7 @@ myTick = do
 myScan ∷ ScanData → WallHugger ()
 myScan (ScanData dist ang) = do
   pos <- getPosition
-  enemyPos .= (Just $ Vec (dist * cos ang) (dist * sin ang) + pos)
+  enemyPos .= (Just $ vec (dist * cos ang) (dist * sin ang) + pos)
   return ()
 
 myOnHitByBullet ∷ WallHugger ()

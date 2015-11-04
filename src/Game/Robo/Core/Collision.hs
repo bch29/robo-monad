@@ -67,11 +67,11 @@ findCollisions rect pts =
 -- | Constructs an 'EntityGrid' given a minimum cell size, the world size, and a
 -- vector of all the entities.
 entityGrid :: Scalar -> Vec -> Vector (PointEntity a) -> EntityGrid a
-entityGrid minSize (Vec worldWidth worldHeight) entities =
+entityGrid minSize (V2 worldWidth worldHeight) entities =
   let divisor = 20
       cellWidth = max minSize (worldWidth / divisor)
       cellHeight = max minSize (worldHeight / divisor)
-      cellSize = Vec cellWidth cellHeight
+      cellSize = V2 cellWidth cellHeight
 
       cellsAcross = ceiling (worldWidth / cellWidth)
       cellsDown   = ceiling (worldHeight / cellHeight)
@@ -119,18 +119,18 @@ cellToIndex cellsAcross (x,  y) =
   y * cellsAcross + x
 
 pointToCell :: Vec -> Vec -> (Int, Int)
-pointToCell (Vec cellWidth cellHeight) (Vec x y) =
+pointToCell (V2 cellWidth cellHeight) (V2 x y) =
   (x / cellWidth, y / cellHeight) & over each floor
 
 -- testMinSize = 0.1
 
--- testWorldSize = Vec 1.0 1.0
+-- testWorldSize = V2 1.0 1.0
 
 -- testRect :: Rect
--- testRect = Rect (Vec 0.1 0.10) (Vec 0.07 0.07) 0
+-- testRect = Rect (V2 0.1 0.10) (V2 0.07 0.07) 0
 
--- testEntities :: Vector (PointEntity Vec)
--- testEntities = V.fromList . fmap (PE id) $ [Vec 0 0, Vec 0.11 0.12, Vec 0.1 0.1, Vec 0.3 0.4, Vec 0.6 0.2]
+-- testEntities :: Vector (PointEntity V2)
+-- testEntities = V.fromList . fmap (PE id) $ [V2 0 0, V2 0.11 0.12, V2 0.1 0.1, V2 0.3 0.4, V2 0.6 0.2]
 
 -- testDivision = entityGrid testMinSize testWorldSize testEntities
 

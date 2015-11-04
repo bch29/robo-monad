@@ -23,7 +23,8 @@ executable robo-demo
                -threaded
                -eventlog
                -rtsopts
-               "-with-rtsopts=-N4 -ls"
+               -funbox-strict-fields
+               "-with-rtsopts=-N -ls"
 
 library
   exposed-modules:
@@ -50,18 +51,21 @@ library
     Game.Robo.Render
 
   build-depends: GLFW-b
+               , GPipe
+               , GPipe-GLFW >= 1.2
                , MonadRandom
-               , OpenGL
-               , OpenGLRaw
                , array
                , base >= 4.8 && <5
                , containers >= 0.5 && < 0.6
                , deepseq >= 1.4
+               , exception-transformers >= 0.4
                , free
+               , linear
                , microlens-platform
                , mtl
                , parallel >= 3.2 && < 4
                , random
+               , time >= 1.5
                , transformers >= 0.4.2.0 && < 0.5
                , vector
                , vector-strategies
@@ -70,6 +74,7 @@ library
   default-extensions:  FlexibleContexts, RecordWildCards
   other-extensions:    TemplateHaskell, GeneralizedNewtypeDeriving
   ghc-options:
-    -O2
-    -threaded
-    -Wall
+              -O2
+              -threaded
+              -funbox-strict-fields
+              -Wall

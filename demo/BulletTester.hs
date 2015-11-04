@@ -50,7 +50,7 @@ makeLenses ''BulletTesterState
 findAngle ∷ BulletTester Angle
 findAngle = do
   pos <- getPosition
-  centre <- (|* 0.5) <$> getRule ruleArenaSize
+  centre <- (0.5 *^) <$> getRule ruleArenaSize
   return (centre `angleTo` pos)
 
 -- | Runs when the bot is first created.
@@ -66,7 +66,7 @@ tickGun = do
   -- aim for the centre
   size <- getRule ruleArenaSize
   pos <- getPosition
-  gunTarget .= angleToHorizontal (size |* 0.5 - pos)
+  gunTarget .= angleToHorizontal (size ^* 0.5 - pos)
 
   -- do the PID stuff
   realAng <- getGunAbsHeading

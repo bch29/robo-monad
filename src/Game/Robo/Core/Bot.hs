@@ -71,19 +71,19 @@ tryCollideWall arenaRect = do
   rect <- botRect =<< get
   let crs = rectCornersOutside arenaRect rect
       -- get the width and height of the arena
-      (Rect _ (Vec sx sy) _) = arenaRect
+      (Rect _ (V2 sx sy) _) = arenaRect
   case crs of
     [] -> return Nothing
-    vec : _ -> do
+    v : _ -> do
       heading <- use botHeading
-      let dir = case vec of
-                  Vec x y | x > sx    -> Vec 1 0
-                          | x < 0     -> Vec (-1) 0
-                          | y > sy    -> Vec 0 1
-                          | y < 0     -> Vec 0 (-1)
-                          | otherwise -> error "tryCollideWall"
-          angle = angNormRelative $ angleToHorizontal dir - heading + pi/2
-      return . Just $ WallCollisionData angle
+      let dir = case v of
+                  V2 x y | x > sx    -> vec 1 0
+                         | x < 0     -> vec (-1) 0
+                         | y > sy    -> vec 0 1
+                         | y < 0     -> vec 0 (-1)
+                         | otherwise -> error "tryCollideWall"
+          ang = angNormRelative $ angleToHorizontal dir - heading + pi/2
+      return . Just $ WallCollisionData ang
 
 -- | Calculate the robot's new position after some time has passed.
 -- Approximates many integrals. Returns the wall collision data if
@@ -107,7 +107,7 @@ stepBotMotion passed worldState = do
   pos       <- use botPos
   let acc    = thrust / mass
       speed' = driveFric * (speed + acc * passed)
-      pos'   = pos + dir |* (speed' * passed)
+      pos'   = pos + dir ^* (speed' * passed)
 
   -- stop the robot in its tracks if it has hit a wall,
   -- otherwise update its position and direction
@@ -141,8 +141,8 @@ fireBullet = do
     botAng  <- use botHeading
     gunAng  <- use (botGun.gunHeading)
     let ang = botAng + gunAng
-        vel    = rotateVec ang (Vec speed 0)
-        offset = rotateVec ang (Vec (gunSize^.vX) 0)
+        vel    = rotateVec ang (vec speed 0)
+        offset = rotateVec ang (vec (gunSize^._x) 0)
         bul    = Bullet { _bulVel   = vel
                         , _bulPos   = pos + offset
                         , _bulPower = firing
@@ -307,10 +307,10 @@ botMain spec updateChan responseChan =
             -- loop indefinitely (until the main thread dies)
             return $ Just userState'
       -- start the main loop
-      iterateContext userState1 step
+      iterateRoboContext userState1 step
 
 -- | Run a robot. This never terminates and is designed to be called in its own thread.
 -- Communicates with the World thread via channels.
 runBot :: Rules -> BotSpec -> BotState -> Chan BotUpdate -> Chan BotResponse -> IO ()
 runBot rules spec botState updateChan responseChan =
-  evalContext (botMain spec updateChan responseChan) rules botState
+  evalRoboContext (botMain spec updateChan responseChan) rules botState

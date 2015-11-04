@@ -25,11 +25,12 @@ module Game.Robo.Core.Types
   ( Rules (..)
 
   , Robo (..), RoboF (..)
-  , Bot, IOBot, DrawBot
-  , World, IOWorld, DrawWorld
-  , PureContext
+  , Bot, IOBot -- , DrawBot
+  , World, IOWorld -- , DrawWorld
+  , PureRoboContext
 
-  , DrawContext, ContextT
+  -- , DrawRoboContext
+  , RoboContextT
 
   , GameActions (..)
 
@@ -61,7 +62,6 @@ import           GHC.Generics                (Generic)
 
 import           Game.Robo.Core.Many.Vector  as Many
 import           Game.Robo.Core.Types.Maths
-import           Game.Robo.Render
 
 ---------------------------------
 --  Rules
@@ -158,35 +158,26 @@ data RoboF s a where
 deriving instance Functor (RoboF s)
 
 -- | The internal robot monad.
-type Bot = PureContext BotState
+type Bot = PureRoboContext BotState
 
 -- | A bot that can do I/O.
-type IOBot = ContextT BotState IO
-
--- | A bot that can draw.
-type DrawBot = DrawContext BotState
+type IOBot = RoboContextT BotState IO
 
 -- | The internal world monad.
-type World = PureContext WorldState
+type World = PureRoboContext WorldState
 
 -- | A world that can do I/O.
-type IOWorld = ContextT WorldState IO
-
--- | A world that can draw.
-type DrawWorld = DrawContext WorldState
+type IOWorld = RoboContextT WorldState IO
 
 -- | A pure context, based on Rand.
-type PureContext s = ContextT s (Rand StdGen)
-
--- | A context that can draw.
-type DrawContext s = ReaderT (Rules, s) Draw
+type PureRoboContext s = RoboContextT s (Rand StdGen)
 
 -- | A lot of computations take place within this context, with a Writer
 -- for logging, a Reader to keep track of the battle rules and a Rand for
 -- random number generation. We don't use RWS because we want StateT as
 -- the outer layer so that we can easily strip off a BotState and replace
 -- it with a WorldState to 'promote' Bot to World.
-type ContextT s m = StateT s (WriterT String (ReaderT Rules m))
+type RoboContextT s m = StateT s (WriterT String (ReaderT Rules m))
 
 -- Here we define some aliases for typeclass constraints that are used a lot.
 type StB = MonadState BotState
@@ -215,13 +206,11 @@ type MIO = MonadIO
 data GameActions s = GameActions
   {
     -- | The action which is called as the game is initialising.
-    actionInit     :: Maybe (ContextT s IO ())
+    actionInit     :: Maybe (RoboContextT s IO ())
     -- | The main action which is continually called while doing nothing else.
-  , actionMain     :: Maybe (ContextT s IO ())
-    -- | The action that that is called when it is time to render the frame.
-  , actionDraw     :: Maybe (DrawContext s ())
+  , actionMain     :: Maybe (RoboContextT s IO ())
     -- | The action that is called when a key is pressed.
-  , actionKeyboard :: Maybe (Char -> ContextT s IO ())
+  , actionKeyboard :: Maybe (Char -> RoboContextT s IO ())
   }
 
 ---------------------------------
@@ -240,7 +229,7 @@ data WorldState = WorldState
   , _wldSinceTick    :: !Int        -- The number of steps that have passed since the last tick.
   , _wldUpdateChans  :: !(Many (Chan BotUpdate)) -- The channels along which the world sends update requests to the bots.
      -- The channel along which the bots send update responses to the world.
-  , _wldResponseChan :: Maybe (Chan BotResponse)
+  , _wldResponseChan :: !(Maybe (Chan BotResponse))
   }
   deriving (Generic)
 

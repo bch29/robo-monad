@@ -28,7 +28,7 @@ makeLenses ''Rules
 defaultRules ∷ Rules
 defaultRules = Rules
   -- Robot
-  { _ruleBotSize            = Vec 60 40
+  { _ruleBotSize            = vec 60 40
   , _ruleMaxThrust          = 500
   , _ruleDriveFriction      = 0.97
   , _ruleMaxAngThrust       = 32
@@ -38,18 +38,18 @@ defaultRules = Rules
   , _ruleEnergyRechargeRate = 5
 
   -- Life bar
-  , _ruleLifebarSize        = Vec 60 4
-  , _ruleLifebarOffset      = Vec 0 (-50)
+  , _ruleLifebarSize        = vec 60 4
+  , _ruleLifebarOffset      = vec 0 (-50)
   , _ruleMaxLife            = 30
 
   -- Radar
-  , _ruleRadarSize          = Vec 10 30
+  , _ruleRadarSize          = vec 10 30
   , _ruleMaxRadSpeed        = 16
   , _ruleRadRange           = 2000
   , _ruleRadFOV             = pi / 6
 
   -- Guns
-  , _ruleGunSize            = Vec 40 8
+  , _ruleGunSize            = vec 40 8
   , _ruleMaxGunTurnPower    = 64
   , _ruleGunFriction        = 0.85
   , _ruleBulletSpeed        = 600
@@ -57,7 +57,7 @@ defaultRules = Rules
   , _ruleMinFirePower       = 0.5
 
   -- Miscellaneous
-  , _ruleArenaSize          = Vec 800 800
+  , _ruleArenaSize          = vec 800 800
   , _ruleSpawnMargin        = 100
   , _ruleMinSPS             = 12
   , _ruleMaxSPS             = 1000

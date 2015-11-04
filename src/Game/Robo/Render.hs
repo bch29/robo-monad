@@ -9,212 +9,128 @@ Portability : non-portable
 
 -}
 
-{-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE Arrows              #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE NoMonomorphismRestriction        #-}
+{-# LANGUAGE RankNTypes        #-}
 
-module Game.Robo.Render
-  ( RenderData, renderDataWin
-  , Colour
-  , Draw
-  , MonadDraw
-  , startRender
-  , getTicks
-  , colour, colourWord
-  , runDraw, drawPoly, drawLine, drawCircle
-  , drawRender
-  ) where
+module Game.Robo.Render where
 
-import           Control.Monad.Free.Church
-import           Control.Monad.Random
-import           Control.Monad.Reader
-import           Control.Monad.State.Strict
-import           Control.Monad.Writer.Strict
-import           Data.Bits
+import           Control.Arrow
+import           Control.Concurrent (forkIO, ThreadId)
+import           Control.Monad (forever)
+import           Control.Monad.IO.Class
 import           Data.IORef
-import           Data.Vector                 (Vector)
-import qualified Data.Vector                 as V
-import           Graphics.Rendering.OpenGL   as GL hiding (Line)
-import           Graphics.UI.GLFW            as GL
+import           Graphics.GPipe
+import           Graphics.GPipe.Context.GLFW
+import           Graphics.UI.GLFW (WindowHint(..), getTime)
+import           Lens.Micro.Platform
 
-import           Game.Robo.Core.Types.Maths
+data ScalableRenderData = ScalableRenderData
+  { srdPos  :: V2 Float
+  , srdRot  :: V2 Float
+  , srdSize :: Float
+  , srdVert :: V4 Float
+  , srdCol  :: V3 Float
+  }
 
-data RenderData = RenderData Window (IORef (Draw ()))
+data ScalableBufferData = ScalableBufferData
+  { sbdPos  :: B2 Float
+  , sbdRot  :: B2 Float
+  , sbdSize :: B Float
+  , sbdVert :: B4 Float
+  , sbdCol  :: B3 Float
+  }
 
-renderDataWin :: RenderData -> Window
-renderDataWin (RenderData win _) = win
+data ScalableShaderData = ScalableShaderData
+  { ssdPos  :: V2 (S V Float)
+  , ssdRot  :: V2 (S V Float)
+  , ssdSize :: S V Float
+  , ssdVert :: V4 (S V Float)
+  , ssdCol  :: V3 (S V Float)
+  }
 
--------------------------------------
---  DRAWING
--------------------------------------
+instance BufferFormat ScalableBufferData where
+  type HostFormat ScalableBufferData = ScalableRenderData
+  toBuffer = proc ~(ScalableRenderData pos rot size vert col) -> do
+    pos'  <- toBuffer -< pos
+    rot'  <- toBuffer -< rot
+    size' <- toBuffer -< size
+    vert' <- toBuffer -< vert
+    col'  <- toBuffer -< col
+    returnA -< ScalableBufferData pos' rot' size' vert' col'
 
--- | A colour.
-type Colour = Color3 GLfloat
+instance VertexInput ScalableBufferData where
+  type VertexFormat ScalableBufferData = ScalableShaderData
+  toVertex = proc ~(ScalableBufferData pos rot size vert col) -> do
+    pos'  <- toVertex -< pos
+    rot'  <- toVertex -< rot
+    size' <- toVertex -< size
+    vert' <- toVertex -< vert
+    col'  <- toVertex -< col
+    returnA -< ScalableShaderData pos' rot' size' vert' col'
 
--- | Something that can be drawn.
-data DrawObject
-  = Poly Colour (Vector Vec)
-  | Line Colour Vec Vec
-  | Circle Colour Vec Scalar
-  deriving (Show)
+-- | Multiply two vectors, treating them as imaginary numbers. Allows us to
+-- rotate by an angle if we know the sine and cosine, which is faster in a
+-- shader than recomputing the sine and cosine every time.
+imaginaryMul :: Num a => V2 a -> V2 a -> V2 a
+imaginaryMul (V2 a b) (V2 x y) = V2 (a * x - b * y) (a * y + b * x)
+{-# INLINE imaginaryMul #-}
 
--- | The functor for the free monad.
-data DrawF a = DrawF DrawObject a
-             deriving (Functor)
+makeScaledCopies
+  :: PrimitiveTopology p
+  -> Buffer os (B4 Float)
+  -> Buffer os (B2 Float, B2 Float, B Float, B3 Float)
+  -> Render os f (PrimitiveArray p ScalableBufferData)
+makeScaledCopies geom shape copies = do
+  shapeArray <- newVertexArray shape
+  copyArray <- newVertexArray copies
+  return $
+    toPrimitiveArrayInstanced
+      geom
+      (\vert (pos, rot, scale, col) -> ScalableBufferData pos rot scale vert col)
+      shapeArray
+      copyArray
 
--- | The monad that you draw in.
-newtype Draw a = Draw (F DrawF a)
-               deriving (Functor, Applicative, Monad)
+scalableShader
+  :: (ContextColorFormat c, Color c Bool ~ V3 Bool,
+      Color c (S F (ColorElement c)) ~ V3 FFloat)
+     => V2 Int
+     -> PrimitiveStream p ScalableShaderData
+     -> Shader os (ContextFormat c ds) b ()
+scalableShader winSize stream = do
+  let V2 winWidth winHeight = fmap fromIntegral winSize
+      translateToWin (V2 x y) = V2 (2 * x / winWidth - 1)
+                                   (1 - 2 * y / winHeight)
+      compute (ScalableShaderData pos rot size vert col) =
+        (over _xy (\v -> translateToWin (pos + size *^ imaginaryMul rot v)) vert, col)
+      outputStream = fmap compute stream
+  fragmentStream <- rasterize (const ( FrontAndBack
+                                     , ViewPort (V2 0 0) winSize
+                                     , DepthRange 0 1))
+                              outputStream
 
-class Monad m => MonadDraw m where
-  drawObject :: DrawObject -> m ()
+  drawContextColor (const (ContextColorOption NoBlending (V3 True True True)))
+                   fragmentStream
 
-instance MonadDraw m => MonadDraw (StateT s m) where
-  drawObject = lift . drawObject
+getTicks :: (MonadIO m, Integral a) => m a
+getTicks = maybe 0 (round . (* 1000)) <$> liftIO getTime
 
-instance MonadDraw m => MonadDraw (ReaderT r m) where
-  drawObject = lift . drawObject
-
-instance (MonadDraw m, Monoid w) => MonadDraw (WriterT w m) where
-  drawObject = lift . drawObject
-
-instance (MonadDraw m, RandomGen g) => MonadDraw (RandT g m) where
-  drawObject = lift . drawObject
-
-instance MonadDraw Draw where
-  drawObject obj = (Draw . liftF) (DrawF obj ())
-
--- | Make a colour from red, green and blue values.
-colour :: Int -- ^ Red
-       -> Int -- ^ Green
-       -> Int -- ^ Blue
-       -> Colour
-colour r g b = Color3
-                 (fromIntegral r / 255)
-                 (fromIntegral g / 255)
-                 (fromIntegral b / 255)
-
--- | Make a colour from a (probably hex) word.
-colourWord :: Int -> Colour
-colourWord w =
-  let r = (w `shiftR` 16) .&. 0xFF
-      g = (w `shiftR` 8 ) .&. 0xFF
-      b = w .&. 0xFF
-  in colour r g b
-
--- | Take a Draw monad and actually render the results to the screen,
--- filling the background with the given colour. Throws away the result.
-runDraw :: Draw a -> RenderData -> IO ()
-runDraw draw (RenderData _ drawVar) =
-  writeIORef drawVar (void draw)
-
--- | Draw a polygon with the given colour through the given points.
-drawPoly :: MonadDraw m => Colour -> Vector Vec -> m ()
-drawPoly col corners = drawObject (Poly col corners)
-
--- | Draw a line with the given colour through the given points.
-drawLine :: MonadDraw m => Colour -> Vec -> Vec -> m ()
-drawLine col a b = drawObject (Line col a b)
-
--- | Draw a circle with the given colour with the given centre and radius.
-drawCircle :: MonadDraw m => Colour -> Vec -> Scalar -> m ()
-drawCircle col cen rad = drawObject (Circle col cen rad)
-
--------------------------------------
---  INTERNALS
--------------------------------------
-
--- | Convert a 2D vector to an OpenGL 3D vertex.
-vecToVert :: Vec -> GL.Vertex3 GLfloat
-vecToVert v =
-  let (Vec x y) = (v / Vec 400 400) - Vec 1 1
-  in GL.Vertex3 (realToFrac x) (realToFrac y) 0
-
--- | Do the actual drawing of a circle (approximated by a 20-sided polygon).
-doCircle :: Colour -> Vec -> Scalar -> IO ()
-doCircle col cen rad = GL.renderPrimitive GL.LineLoop $ do
-  let atAng ang = GL.vertex . vecToVert $ cen + Vec (rad * cos ang) (rad * sin ang)
-      numSegments = 20
-  color col
-  mapM_ (atAng . (*(2*pi)) . (/numSegments)) [0 .. numSegments - 1]
-
--- | Draw an object to the screen using GLUT.
-doDrawObject :: DrawObject -> IO ()
-doDrawObject obj =
-  case obj of
-    Poly col corners ->
-      when (V.length corners > 1) $ do
-        color col
-        let onePoint = GL.vertex . vecToVert
-        GL.renderPrimitive GL.LineLoop (V.mapM_ onePoint corners)
-    Line col v1 v2 -> do
-      color col
-      GL.renderPrimitive GL.Lines $ do
-        GL.vertex (vecToVert v1)
-        GL.vertex (vecToVert v2)
-    Circle col cen rad -> doCircle col cen rad
-
-interpretDraw :: DrawF (IO a) -> IO a
-interpretDraw (DrawF obj m) = do doDrawObject obj; m
-
-doDraw :: Draw () -> IO ()
-doDraw (Draw draw) = iterM interpretDraw draw
-
--- | The function to actually do the displaying
--- display :: IORef (Vector3 GLfloat, GLfloat, GLfloat) -> RenderData -> IO ()
-drawRender :: RenderData -> IO ()
-drawRender (RenderData win drawVar) = do
-  clearColor $= Color4 0.1 0.05 0.05 (1 :: GLclampf)
-  clear [ ColorBuffer ]
-  loadIdentity
-  -- (offset, sx, sy) <- readIORef scaleVar
-  -- scale sx sy 0
-  -- translate offset
-  -- translate (Vector3 (-1 :: GLfloat) (-1) 0)
-  -- scale 0.01 0.01 (0 :: GLfloat)
-  doDraw =<< readIORef drawVar
-
-  writeIORef drawVar (return ())
-  swapBuffers win
-  flush
-
--- | The GLUT reshape callback function.
--- reshape :: Vec -> IORef (Vector3 GLfloat, GLfloat, GLfloat) -> ReshapeCallback
--- reshape (Vec tw th) scaleVar (Size width height) = do
---   let offset = Vector3 (-realToFrac tw / 2) (-realToFrac th / 2) (0 :: GLfloat)
---       (sx, sy) = (realToFrac $ 2 / tw, realToFrac $ 2 / th) :: (GLfloat, GLfloat)
---   writeIORef scaleVar (offset, sx, -sy)
---   viewport $= (Position 0 0, Size (round tw) (round th))
-
--------------------------------------
---  BASICS
--------------------------------------
-
--- | Make a window to draw in.
-startRender :: String -> Int -> Int -> IO RenderData
-startRender windowName width height = do
-  _ <- GL.init
-
-  let hints = [ WindowHint'Resizable False
-              , WindowHint'Samples 4
-              , WindowHint'Decorated False
-              ]
-
-  mapM_ windowHint hints
-
-  (Just w) <- createWindow (fromIntegral width) (fromIntegral height) windowName Nothing Nothing
-  makeContextCurrent (Just w)
-
-  -- Hack for retina displays
-  (szx, szy) <- getFramebufferSize w
-  viewport $= (Position 0 0, Size (fromIntegral szx) (fromIntegral szy))
-
-  -- Set up rendering
-  drawVar <- newIORef (return ())
-  let render = RenderData w drawVar
-  return render
-
--- | Get the number of milliseconds that have passed since initialisation.
-getTicks :: IO Int
-getTicks = do
-  Just time <- getTime
-  return . round $ time * 1000
+runRendering
+  :: WindowConf
+     -> (forall os. Shader os (ContextFormat RGBFloat ()) shaderInput ())
+     -> (forall os. CompiledShader os (ContextFormat RGBFloat ()) shaderInput ->
+         ContextT GLFWWindow os (ContextFormat RGBFloat ()) IO ())
+     -> IO (ThreadId, IORef Bool)
+runRendering windowConf shaderCode renderAction = do
+  let context = newContext' [WindowHint'Resizable False] windowConf
+  windowCloseRef <- newIORef False
+  tid <- forkIO $ runContextT context (ContextFormatColor RGB8) $ do
+       shader <- compileShader shaderCode
+       forever $
+         do renderAction shader
+            swapContextBuffers
+            shouldClose <- windowShouldClose
+            liftIO $ writeIORef windowCloseRef shouldClose
+  return (tid, windowCloseRef)

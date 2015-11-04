@@ -33,8 +33,8 @@ instance Pidable Double Double where
   magnitude = abs
   pidZero   = 0
 
-instance Floating a => Pidable a (GVec a) where
-  mulScalar = (*|)
+instance Floating a => Pidable a (V2 a) where
+  mulScalar = (*^)
   pidDiff   = (-)
   pidSum    = (+)
   magnitude = vecMag

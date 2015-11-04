@@ -23,12 +23,11 @@ uses all of those.
 module Game.Robo.Core
   ( botsFindM
   , runRobo
-  , runContext
-  , evalContext
-  , runPureContext
-  , runDrawing
-  , forceContext
-  , iterateContext
+  , runRoboContext
+  , evalRoboContext
+  , runPureRoboContext
+  , forceRoboContext
+  , iterateRoboContext
   , gameActions
   , startGameLoop
   , printNum
@@ -47,21 +46,17 @@ import           Control.Monad.Reader        (MonadReader (ask),
 import           Control.Monad.State.Strict  (MonadState (get, put),
                                               StateT (runStateT))
 import           Control.Monad.Writer.Strict (MonadWriter (tell), runWriterT)
-import           Data.IORef                  (IORef, newIORef, readIORef,
-                                              writeIORef)
+import           Data.IORef                  (IORef, readIORef, writeIORef)
 import           Data.Maybe                  (fromMaybe)
-import           Graphics.UI.GLFW            (pollEvents, setCharCallback,
-                                              windowShouldClose)
 import           Lens.Micro.Platform
 
 import           Game.Robo.Core.Lenses       as X
 import           Game.Robo.Core.Rules        as X
 import           Game.Robo.Core.Types        as X
-import           Game.Robo.Render
 
 -- | Returns the first bot ID that satisfies a monadic predicate by running it
 -- for each bot in turn but stopping when it returns True.
-botsFindM :: Monad m => ContextT BotState m Bool -> ContextT WorldState m (Maybe BotID)
+botsFindM :: Monad m => RoboContextT BotState m Bool -> RoboContextT WorldState m (Maybe BotID)
 botsFindM action = do
   botStates <- use wldBots
   let doWhile bid sts' (st:sts) = do
@@ -127,14 +122,14 @@ interpretRobo robo =
 
 -- | Runs an action in a stateful context, returning the resulting state,
 -- random number generator and message log along with the result of the action.
-runPureContext :: PureContext s a -> StdGen -> Rules -> s -> (a, s, String, StdGen)
-runPureContext ctx gen rules st = (res, st', lg, gen')
-  where noCtx = runContext ctx rules st
+runPureRoboContext :: PureRoboContext s a -> StdGen -> Rules -> s -> (a, s, String, StdGen)
+runPureRoboContext ctx gen rules st = (res, st', lg, gen')
+  where noCtx = runRoboContext ctx rules st
         ((res, st', lg), gen') = runRand noCtx gen
 
 -- | Runs a contextual action, returning the results, state and message log.
-runContext :: Monad m => ContextT s m a -> Rules -> s -> m (a, s, String)
-runContext ctx rules st = do
+runRoboContext :: Monad m => RoboContextT s m a -> Rules -> s -> m (a, s, String)
+runRoboContext ctx rules st = do
   let noState = runStateT ctx st
       noWriter = runWriterT noState
       noReader = runReaderT noWriter rules
@@ -142,37 +137,27 @@ runContext ctx rules st = do
   return (res, st', lg)
 
 -- | Evaluates a contextual action and returns just the result.
-evalContext :: Monad m => ContextT s m a -> Rules -> s -> m a
-evalContext ctx rules st = do
-  (res, _, _) <- runContext ctx rules st
+evalRoboContext :: Monad m => RoboContextT s m a -> Rules -> s -> m a
+evalRoboContext ctx rules st = do
+  (res, _, _) <- runRoboContext ctx rules st
   return res
 
--- | Does a DrawContext's drawing.
-runDrawing
-  :: (MonadState s m, MIO m, Ru m)
-     => DrawContext s ()
-     -> RenderData -> m ()
-runDrawing action render = do
-  rules <- ask
-  theState <- get
-  liftIO $ runDraw (runReaderT action (rules, theState)) render
-
 -- | Forces the evaluation of all parts of an I/O-capable piece of state.
-forceContext :: (MonadState s m, MIO m, NFData s) => m ()
-forceContext = do
+forceRoboContext :: (MonadState s m, MIO m, NFData s) => m ()
+forceRoboContext = do
   s <- get
   liftIO $ evaluate (rnf s)
 
 -- | Do a contextual action until it returns Nothing, making sure to always
 -- fully evaluate the state and print out the contents of the log after
 -- each iteration.
-iterateContext :: NFData s => a -> (a -> ContextT s IO (Maybe a)) -> ContextT s IO ()
-iterateContext val1 ctxf = do
+iterateRoboContext :: NFData s => a -> (a -> RoboContextT s IO (Maybe a)) -> RoboContextT s IO ()
+iterateRoboContext val1 ctxf = do
   rules <- ask
   state1 <- get
 
   let loop st val = do
-        (mval, st', lg) <- runContext (ctxf val) rules st
+        (mval, st', lg) <- runRoboContext (ctxf val) rules st
         putStr lg
         evaluate (rnf st')
         case mval of
@@ -182,10 +167,10 @@ iterateContext val1 ctxf = do
   liftIO $ loop state1 val1
 
 -- | Runs a game action and updates the state reference when it is done.
-runAction :: NFData s => Rules -> IORef s -> ContextT s IO () -> IO ()
+runAction :: NFData s => Rules -> IORef s -> RoboContextT s IO () -> IO ()
 runAction rules ref action = do
   st <- readIORef ref
-  (_, st', lg) <- runContext action rules st
+  (_, st', lg) <- runRoboContext action rules st
   putStr lg
   evaluate (rnf st')
   writeIORef ref st'
@@ -195,7 +180,7 @@ gameActions :: GameActions s
 gameActions = GameActions
   { actionInit     = Nothing
   , actionMain     = Nothing
-  , actionDraw     = Nothing
+  -- , actionDraw     = Nothing
   , actionKeyboard = Nothing
   }
 
@@ -206,48 +191,33 @@ printNum l = do
 
 -- | Starts the game loop given a set of rules, an initial state,
 -- and a set of actions.
-startGameLoop :: (NFData s) =>
-                 String -- ^ The window name.
-              -> Int -- ^ The window width.
-              -> Int -- ^ The window height.
-              -> Rules -- ^ The game rules.
-              -> s -- ^ The initial game state.
-              -> GameActions s -- ^ The set of game actions.
+startGameLoop :: Rules -- ^ The game rules.
+              -> IORef WorldState -- ^ The reference to the world state
+              -> IORef Bool -- ^ The reference which tells us when we should quit
+              -> GameActions WorldState -- ^ The set of game actions.
               -> IO ()
-startGameLoop winName winW winH rules initialState GameActions{..} =
-  evalContext go rules initialState
+startGameLoop rules ref quitRef GameActions{..} =
+  evalRoboContext go rules =<< readIORef ref
   where
-    doMaybeM = maybe (return ())
+    maybeM = maybe (return ())
     go = do
-      -- initialise
-      render <- liftIO $ startRender winName winW winH
-
       -- run the initialisation action if it exists
       fromMaybe (return ()) actionInit
 
-      -- get the state
+      -- get the updated state
       st <- get
 
-      -- set up our state reference
-      ref <- liftIO $ newIORef st
+      -- update up our state reference
+      liftIO $ writeIORef ref st
 
-      let doKeyboard = fmap (\kbd _ k -> runAction rules ref (kbd k)) actionKeyboard
-      liftIO $ setCharCallback (renderDataWin render) doKeyboard
+      -- let doKeyboard = fmap (\kbd _ k -> runAction rules ref (kbd k)) actionKeyboard
+      -- liftIO $ setCharCallback (renderDataWin render) doKeyboard
 
-      let doMain    = doMaybeM (liftIO . runAction rules ref) actionMain
-          doDrawing = doMaybeM (`runDrawing` render)          actionDraw
-          mainLoop lastTick = do
-            liftIO pollEvents
+      let doMain = maybeM (liftIO . runAction rules ref) actionMain
+          mainLoop = do
             doMain
             st' <- liftIO (readIORef ref)
             put st'
-            ticks <- liftIO getTicks
-            let tickTime = 1000 `div` 60
-            lastTick' <- if ticks - lastTick > tickTime
-                         then do doDrawing
-                                 liftIO (drawRender render)
-                                 return (lastTick + tickTime)
-                         else return lastTick
-            q <- liftIO $ windowShouldClose (renderDataWin render)
-            unless q (mainLoop lastTick')
-      mainLoop 0
+            q <- liftIO (readIORef quitRef)
+            unless q mainLoop
+      mainLoop

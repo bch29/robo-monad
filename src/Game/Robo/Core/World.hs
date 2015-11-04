@@ -27,10 +27,15 @@ import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Parallel.Strategies
 import           Data.Array.IO
+import           Data.IORef
 import           Data.Maybe
 import           Data.Set                    (Set)
 import qualified Data.Set                    as S
+import           Data.Time.Calendar          (Day (..))
+import           Data.Time.Clock
+import           Graphics.GPipe.Context.GLFW
 import           Lens.Micro.Platform
+import           System.Mem
 
 import           Game.Robo.Core
 import           Game.Robo.Core.Bot
@@ -41,15 +46,15 @@ import           Game.Robo.Render.World
 
 -- | Move a bullet along.
 updateBullet :: Double -> Bullet -> Bullet
-updateBullet passed bul = bul & bulPos %~ (+ (bul^.bulVel) |* passed)
+updateBullet passed bul = bul & bulPos %~ (+ (bul^.bulVel) ^* passed)
 
 -- | Check if a bullet is within the bounds of the arena.
 isBulletInArena :: Vec -> Bullet -> Bool
 isBulletInArena size bul =
     bx >= minX && bx <= maxX && by >= minY && by <= maxY
   where
-    (minX, minY, maxX, maxY) = (0 :: Double, 0 :: Double, size^.vX, size^.vY)
-    (bx, by) = (bul^.bulPos.vX, bul^.bulPos.vY)
+    (minX, minY, maxX, maxY) = (0 :: Double, 0 :: Double, size^._x, size^._y)
+    (bx, by) = (bul^.bulPos._x, bul^.bulPos._y)
 
 -- | Moves all the bullets along, and removes them if they are outside
 -- the arena bounds.
@@ -133,7 +138,7 @@ stepWorld passed = do
 -- | Gets random positions within the given size for bots to start in.
 generateSpawnPositions :: Ra m => Int -> Scalar -> Vec -> m (Many Vec)
 generateSpawnPositions count margin size =
-  replicateManyM count (getRandomR (1 |* margin, size - 1 |* (2*margin)))
+  replicateManyM count (getRandomR (1 ^* margin, size - 1 ^* (2*margin)))
 
 -- | Collect the responses to a request from all the robots,
 -- blocking until every robot has responded.
@@ -164,7 +169,10 @@ updateWorldWithResponses chan numBots = do
 
 -- | Gets the current time in milliseconds.
 getTime :: IO Int
-getTime = fromIntegral <$> getTicks
+getTime = round
+        .  (* 1000)
+        .  flip diffUTCTime (UTCTime (ModifiedJulianDay 0) 0)
+       <$> getCurrentTime
 
 -- | Change the SPS, making sure to clamp it to between the min and max.
 setSPS :: (StW m, Ru m) => Int -> m ()
@@ -246,6 +254,10 @@ worldMain = do
     numBots <- length <$> use wldBots
     updateWorldWithResponses responseChan numBots
 
+    -- garbage collect if the number of steps we have done is a multiple of 10
+    when (stepsDone `mod` 4 == 0) $
+      liftIO performMinorGC
+
 -- | Handle keyboard input.
 worldKbd :: (StW m, Ru m, MIO m) => Char -> m ()
 worldKbd '+' = modifySPS (+10)
@@ -303,11 +315,12 @@ runWorld :: Rules -> [BotSpec] -> IO ()
 runWorld rules specs = do
   -- work out the world dimensions
   let screenSize = rules^.ruleArenaSize
-      (width, height) = (round (screenSize^.vX), round (screenSize^.vY)) :: (Int, Int)
+      (width, height) = (round (screenSize^._x), round (screenSize^._y)) :: (Int, Int)
+      winConf = WindowConf width height "RoboMonad"
 
   -- initialise the world state
   let _wldBots      = mempty
-      _wldRect      = Rect (screenSize |* 0.5) screenSize 0
+      _wldRect      = Rect (screenSize ^* 0.5) screenSize 0
       _wldBullets   = mempty
       _wldTime0     = 0
       _wldTime      = 0
@@ -319,8 +332,15 @@ runWorld rules specs = do
 
       actionInit = Just (worldInit specs)
       actionMain = Just worldMain
-      actionDraw = Just drawWorld
       actionKeyboard = Just worldKbd
 
-  -- start the game
-  startGameLoop "RoboMonad" width height rules WorldState{..} GameActions{..}
+  stateRef <- newIORef WorldState{..}
+
+  -- start the rendering thread
+  (renderTid, quitRef) <- runRendering winConf (worldShader rules) (renderWorld rules stateRef)
+
+  -- start the game loop
+  startGameLoop rules stateRef quitRef GameActions{..}
+
+  -- finally kill the rendering thread
+  killThread renderTid
