@@ -1,5 +1,5 @@
 name:                robo-monad
-version:             0.1.0.0
+version:             0.2.0.0
 synopsis:            A DSL and simulation environment for robot battles.
 description:         A DSL and simulation environment for robot battles.
 license:             GPL-3
