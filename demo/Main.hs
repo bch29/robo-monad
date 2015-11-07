@@ -26,6 +26,4 @@ myRules = defaultRules
 
 -- Start the world with our ruleset and robots.
 main ∷ IO ()
--- main = runWorld myRules ([crazy, crazy] >>= replicate 25)
-main = runWorld myRules (replicate 50 bullettester)
--- main = runWorld myRules (replicate 50 examplebot)
+main = runWorld myRules [wallhugger, crazy]

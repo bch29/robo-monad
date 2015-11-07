@@ -25,11 +25,10 @@ module Game.Robo.Core.Types
   ( Rules (..)
 
   , Robo (..), RoboF (..)
-  , Bot, IOBot -- , DrawBot
-  , World, IOWorld -- , DrawWorld
+  , Bot, IOBot
+  , World, IOWorld
   , PureRoboContext
 
-  -- , DrawRoboContext
   , RoboContextT
 
   , GameActions (..)
@@ -55,9 +54,7 @@ import           Control.Concurrent
 import           Control.DeepSeq
 import           Control.Monad.Free.Church   (F (..), liftF)
 import           Control.Monad.Random
-import           Control.Monad.Reader
-import           Control.Monad.State.Strict
-import           Control.Monad.Writer.Strict
+import           Control.Monad.RWS.Strict
 import           GHC.Generics                (Generic)
 
 import           Game.Robo.Core.Many.Vector  as Many
@@ -177,7 +174,7 @@ type PureRoboContext s = RoboContextT s (Rand StdGen)
 -- random number generation. We don't use RWS because we want StateT as
 -- the outer layer so that we can easily strip off a BotState and replace
 -- it with a WorldState to 'promote' Bot to World.
-type RoboContextT s m = StateT s (WriterT String (ReaderT Rules m))
+type RoboContextT s = RWST Rules String s
 
 -- Here we define some aliases for typeclass constraints that are used a lot.
 type StB = MonadState BotState
@@ -186,18 +183,6 @@ type Ru  = MonadReader Rules
 type Ra  = MonadRandom
 type Wr  = MonadWriter String
 type MIO = MonadIO
-
--- newtype StateReader m a = StateReader { runStateReader :: m a }
---                                       deriving (Functor, Applicative, Monad)
-
--- instance (MonadReader r m, MonadState s m) => MonadReader (s, r) (StateReader m) where
---   ask = StateReader ((,) <$> get <*> ask)
---   local f m = StateReader $ do
---     prev <- get
---     put (f prev)
---     res <- local f (runStateReader m)
---     put prev
---     return res
 
 ---------------------------------
 --  Main Game Engine
@@ -380,7 +365,6 @@ instance NFData Bullet
 instance NFData RadarState
 instance NFData GunState
 instance NFData BotState
--- instance NFData WorldState
 instance NFData BulletCollision
 instance NFData BotUpdate
 instance NFData BotResponse

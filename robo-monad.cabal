@@ -21,10 +21,8 @@ executable robo-demo
   other-extensions:    TemplateHaskell, GeneralizedNewtypeDeriving
   ghc-options: -O2
                -threaded
-               -eventlog
                -rtsopts
-               -funbox-strict-fields
-               "-with-rtsopts=-N -ls"
+               "-with-rtsopts=-N4"
 
 library
   exposed-modules:

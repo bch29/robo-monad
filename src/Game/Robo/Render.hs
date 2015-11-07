@@ -17,8 +17,8 @@ Portability : non-portable
 
 module Game.Robo.Render where
 
-import           Control.Arrow
-import           Control.Concurrent (forkIO, ThreadId)
+import           Control.Arrow hiding (loop)
+import           Control.Concurrent (threadDelay, forkIO, ThreadId)
 import           Control.Monad (forever)
 import           Control.Monad.IO.Class
 import           Data.IORef
@@ -30,7 +30,7 @@ import           Lens.Micro.Platform
 data ScalableRenderData = ScalableRenderData
   { srdPos  :: V2 Float
   , srdRot  :: V2 Float
-  , srdSize :: Float
+  , srdSize :: V2 Float
   , srdVert :: V4 Float
   , srdCol  :: V3 Float
   }
@@ -38,7 +38,7 @@ data ScalableRenderData = ScalableRenderData
 data ScalableBufferData = ScalableBufferData
   { sbdPos  :: B2 Float
   , sbdRot  :: B2 Float
-  , sbdSize :: B Float
+  , sbdSize :: B2 Float
   , sbdVert :: B4 Float
   , sbdCol  :: B3 Float
   }
@@ -46,7 +46,7 @@ data ScalableBufferData = ScalableBufferData
 data ScalableShaderData = ScalableShaderData
   { ssdPos  :: V2 (S V Float)
   , ssdRot  :: V2 (S V Float)
-  , ssdSize :: S V Float
+  , ssdSize :: V2 (S V Float)
   , ssdVert :: V4 (S V Float)
   , ssdCol  :: V3 (S V Float)
   }
@@ -81,7 +81,7 @@ imaginaryMul (V2 a b) (V2 x y) = V2 (a * x - b * y) (a * y + b * x)
 makeScaledCopies
   :: PrimitiveTopology p
   -> Buffer os (B4 Float)
-  -> Buffer os (B2 Float, B2 Float, B Float, B3 Float)
+  -> Buffer os (B2 Float, B2 Float, B2 Float, B3 Float)
   -> Render os f (PrimitiveArray p ScalableBufferData)
 makeScaledCopies geom shape copies = do
   shapeArray <- newVertexArray shape
@@ -104,7 +104,7 @@ scalableShader winSize stream = do
       translateToWin (V2 x y) = V2 (2 * x / winWidth - 1)
                                    (1 - 2 * y / winHeight)
       compute (ScalableShaderData pos rot size vert col) =
-        (over _xy (\v -> translateToWin (pos + size *^ imaginaryMul rot v)) vert, col)
+        (over _xy (\v -> translateToWin (pos + imaginaryMul rot (size * v))) vert, col)
       outputStream = fmap compute stream
   fragmentStream <- rasterize (const ( FrontAndBack
                                      , ViewPort (V2 0 0) winSize
@@ -119,18 +119,21 @@ getTicks = maybe 0 (round . (* 1000)) <$> liftIO getTime
 
 runRendering
   :: WindowConf
-     -> (forall os. Shader os (ContextFormat RGBFloat ()) shaderInput ())
-     -> (forall os. CompiledShader os (ContextFormat RGBFloat ()) shaderInput ->
+     -> (forall os.
+         (ContextT GLFWWindow os (ContextFormat RGBFloat ()) IO () ->
+          ContextT GLFWWindow os (ContextFormat RGBFloat ()) IO ()) ->
          ContextT GLFWWindow os (ContextFormat RGBFloat ()) IO ())
      -> IO (ThreadId, IORef Bool)
-runRendering windowConf shaderCode renderAction = do
+runRendering windowConf action = do
   let context = newContext' [WindowHint'Resizable False] windowConf
   windowCloseRef <- newIORef False
-  tid <- forkIO $ runContextT context (ContextFormatColor RGB8) $ do
-       shader <- compileShader shaderCode
-       forever $
-         do renderAction shader
-            swapContextBuffers
-            shouldClose <- windowShouldClose
-            liftIO $ writeIORef windowCloseRef shouldClose
+  tid <- forkIO $ runContextT context (ContextFormatColor RGB8) $
+       let loop x =
+             forever
+             (do x
+                 swapContextBuffers
+                 shouldClose <- windowShouldClose
+                 liftIO $ writeIORef windowCloseRef shouldClose
+             )
+       in action loop
   return (tid, windowCloseRef)

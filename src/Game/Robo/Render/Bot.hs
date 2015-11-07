@@ -18,7 +18,6 @@ import           Control.Monad.Reader
 import           Lens.Micro.Platform
 
 import           Game.Robo.Core
-import           Game.Robo.Render
 import           Graphics.GPipe
 
 mkRGB :: Int -> Int -> Int -> V3 Float
@@ -61,18 +60,26 @@ radarBuf rules = do
   writeBuffer buf 0 (map f pts)
   return buf
 
+lifebarBuf :: MonadIO m => Rules -> ContextT w os f m (Buffer os (B4 Float))
+lifebarBuf rules = do
+  let size = realToFrac <$> view ruleLifebarSize rules
+      off = realToFrac <$> view ruleLifebarOffset rules
+  rectBuf size off
+
+type PASC = (V2 Float, V2 Float, V2 Float, V3 Float)
+
 chassisColour, gunColour, radarColour :: V3 Float
 chassisColour = mkRGB 0x99 0xFF 0xFF
 gunColour = mkRGB 0xFF 0xFF 0xAA
 radarColour = mkRGB 0xFF 0xFF 0x88
 
-chassisInfo :: BotState -> (V2 Float, V2 Float, Float, V3 Float)
+chassisInfo :: BotState -> PASC
 chassisInfo = do
   pos <- fmap realToFrac <$> view botPos
   ang <- realToFrac <$> view botHeading
   return (pos, V2 (cos ang) (sin ang), 1, chassisColour)
 
-gunInfo :: BotState -> (V2 Float, V2 Float, Float, V3 Float)
+gunInfo :: BotState -> PASC
 gunInfo = do
   pos <- fmap realToFrac <$> view botPos
   botAng <- realToFrac <$> view botHeading
@@ -80,7 +87,7 @@ gunInfo = do
   let ang = botAng + gunAng
   return (pos, V2 (cos ang) (sin ang), 1, gunColour)
 
-radarInfo :: BotState -> (V2 Float, V2 Float, Float, V3 Float)
+radarInfo :: BotState -> PASC
 radarInfo = do
   pos <- fmap realToFrac <$> view botPos
   botAng <- realToFrac <$> view botHeading
@@ -88,21 +95,14 @@ radarInfo = do
   let ang = botAng + radAng
   return (pos, V2 (cos ang) (sin ang), 1, radarColour)
 
--- lifeBuf :: MonadIO m => V3 Float -> ContextT w os f m (Buffer os (B4 Float))
--- lifeBuf = do
+lifebarInfo :: Rules -> BotState -> PASC
+lifebarInfo rules = do
+  pos <- fmap realToFrac <$> view botPos
+  life <- realToFrac <$> view botLife
 
--- drawLife :: RenderBot m => m ()
--- drawLife = do
---   life <- bs botLife
+  let life' = if life < 0 then 0 else life
+      maxL = realToFrac (rules^.ruleMaxLife)
+      rp = (maxL - life') / maxL
+      gp = life / (maxL / 2)
 
---   maxL <- ru ruleMaxLife
---   off <- ru ruleLifebarOffset
---   (Vec maxw h) <- ru ruleLifebarSize
-
---   pos <- (+) <$> bs botPos <*> pure off
---   let life' = if life < 0 then 0 else life
---       rp = (maxL - life') / maxL
---       gp = life / (maxL / 2)
---       box = Rect pos (Vec (maxw * life' / maxL) h) 0
---   drawRect (colour (round $ rp * 255) (round $ gp * 255) 0x00) box
-
+  return (pos, V2 1 0, V2 (life' / maxL) 1, V3 rp gp 0)

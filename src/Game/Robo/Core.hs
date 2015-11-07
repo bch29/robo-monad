@@ -21,8 +21,7 @@ uses all of those.
 {-# LANGUAGE RecordWildCards            #-}
 
 module Game.Robo.Core
-  ( botsFindM
-  , runRobo
+  ( runRobo
   , runRoboContext
   , evalRoboContext
   , runPureRoboContext
@@ -40,34 +39,16 @@ import           Control.Monad.Free.Church   (iterM)
 import           Control.Monad.Random        (MonadRandom (getRandom, getRandoms,
                                                            getRandomR, getRandomRs),
                                               StdGen, runRand)
-import           Control.Monad.Reader        (MonadReader (ask),
-                                              MonadTrans (lift), lift, liftIO,
-                                              runReaderT, unless)
-import           Control.Monad.State.Strict  (MonadState (get, put),
-                                              StateT (runStateT))
-import           Control.Monad.Writer.Strict (MonadWriter (tell), runWriterT)
+import           Control.Monad.RWS.Strict
+import           Control.Monad.State.Strict
 import           Data.IORef                  (IORef, readIORef, writeIORef)
 import           Data.Maybe                  (fromMaybe)
 import           Lens.Micro.Platform
+import           Control.Concurrent          (threadDelay)
 
 import           Game.Robo.Core.Lenses       as X
 import           Game.Robo.Core.Rules        as X
 import           Game.Robo.Core.Types        as X
-
--- | Returns the first bot ID that satisfies a monadic predicate by running it
--- for each bot in turn but stopping when it returns True.
-botsFindM :: Monad m => RoboContextT BotState m Bool -> RoboContextT WorldState m (Maybe BotID)
-botsFindM action = do
-  botStates <- use wldBots
-  let doWhile bid sts' (st:sts) = do
-        (done, st') <- lift $ runStateT action st
-        if not done
-           then doWhile (bid+1) (st':sts') sts
-           else return (Just bid, reverse (st':sts') ++ sts)
-      doWhile _ sts' [] = return (Nothing, reverse sts')
-  (res, newStates) <- doWhile 1 [] (manyToList botStates)
-  wldBots .= manyFromList newStates
-  return res
 
 -- | Enables us to use another StateT while still being able
 -- to access the underlying state.
@@ -129,12 +110,7 @@ runPureRoboContext ctx gen rules st = (res, st', lg, gen')
 
 -- | Runs a contextual action, returning the results, state and message log.
 runRoboContext :: Monad m => RoboContextT s m a -> Rules -> s -> m (a, s, String)
-runRoboContext ctx rules st = do
-  let noState = runStateT ctx st
-      noWriter = runWriterT noState
-      noReader = runReaderT noWriter rules
-  ((res, st'), lg) <- noReader
-  return (res, st', lg)
+runRoboContext = runRWST
 
 -- | Evaluates a contextual action and returns just the result.
 evalRoboContext :: Monad m => RoboContextT s m a -> Rules -> s -> m a
@@ -174,6 +150,7 @@ runAction rules ref action = do
   putStr lg
   evaluate (rnf st')
   writeIORef ref st'
+{-# INLINE runAction #-}
 
 -- | An initial, empty set of game actions.
 gameActions :: GameActions s
@@ -213,11 +190,11 @@ startGameLoop rules ref quitRef GameActions{..} =
       -- let doKeyboard = fmap (\kbd _ k -> runAction rules ref (kbd k)) actionKeyboard
       -- liftIO $ setCharCallback (renderDataWin render) doKeyboard
 
-      let doMain = maybeM (liftIO . runAction rules ref) actionMain
+      let doMain = maybeM (runAction rules ref) actionMain
           mainLoop = do
             doMain
-            st' <- liftIO (readIORef ref)
-            put st'
-            q <- liftIO (readIORef quitRef)
+            threadDelay 100
+            -- performMinorGC
+            q <- readIORef quitRef
             unless q mainLoop
-      mainLoop
+      liftIO mainLoop

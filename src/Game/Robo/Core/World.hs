@@ -16,6 +16,7 @@ Portability : non-portable
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE OverloadedLists           #-}
 
 module Game.Robo.Core.World (runWorld) where
 
@@ -33,9 +34,10 @@ import           Data.Set                    (Set)
 import qualified Data.Set                    as S
 import           Data.Time.Calendar          (Day (..))
 import           Data.Time.Clock
+import           Graphics.GPipe
 import           Graphics.GPipe.Context.GLFW
 import           Lens.Micro.Platform
-import           System.Mem
+-- import           System.Mem
 
 import           Game.Robo.Core
 import           Game.Robo.Core.Bot
@@ -63,8 +65,8 @@ stepBullets
 stepBullets passed = do
   size <- view ruleArenaSize
   bullets <- use wldBullets
-  let stepped = updateBullet passed <$> bullets `using` parMany
-      filteredBuls = filterMany (isBulletInArena size) stepped `using` parMany
+  let stepped = updateBullet passed <$> bullets -- `using` parMany
+      filteredBuls = filterMany (isBulletInArena size) stepped -- `using` parMany
   wldBullets .= filteredBuls
 
 listToSet :: Ord a => Many a -> Set a
@@ -87,7 +89,7 @@ handleBulletCollisions = do
 
       checkForBot botState = do
         rect <- botRect botState
-        let collidedBullets = findCollisions rect grid `using` parMany
+        let collidedBullets = findCollisions rect grid -- `using` parMany
             collisions = mkCollision (view botID botState) <$> listFromVector collidedBullets
         return collisions
 
@@ -134,6 +136,7 @@ stepWorld passed = do
   stepBullets passed
   collisions <- handleBulletCollisions
   return (collisions, deadBots)
+  -- return ([], deadBots)
 
 -- | Gets random positions within the given size for bots to start in.
 generateSpawnPositions :: Ra m => Int -> Scalar -> Vec -> m (Many Vec)
@@ -253,10 +256,7 @@ worldMain = do
     -- get the responses back
     numBots <- length <$> use wldBots
     updateWorldWithResponses responseChan numBots
-
-    -- garbage collect if the number of steps we have done is a multiple of 10
-    when (stepsDone `mod` 4 == 0) $
-      liftIO performMinorGC
+    return ()
 
 -- | Handle keyboard input.
 worldKbd :: (StW m, Ru m, MIO m) => Char -> m ()
@@ -337,7 +337,13 @@ runWorld rules specs = do
   stateRef <- newIORef WorldState{..}
 
   -- start the rendering thread
-  (renderTid, quitRef) <- runRendering winConf (worldShader rules) (renderWorld rules stateRef)
+  (renderTid, quitRef) <-
+    runRendering
+    winConf
+    (\loop ->
+       do initData <- initRenderWorld rules
+          shader <- compileShader (worldShader rules)
+          loop (renderWorld rules stateRef initData shader))
 
   -- start the game loop
   startGameLoop rules stateRef quitRef GameActions{..}

@@ -25,10 +25,11 @@ import           Game.Robo.Render
 import           Game.Robo.Render.Bot
 
 data RoboShaderInput = RoboShaderInput
-  { rsiBullets     :: PrimitiveArray Lines ScalableBufferData
-  , rsiRobotBodies :: PrimitiveArray Lines ScalableBufferData
-  , rsiRobotRadars :: PrimitiveArray Lines ScalableBufferData
-  , rsiRobotGuns   :: PrimitiveArray Lines ScalableBufferData
+  { rsiBullets       :: PrimitiveArray Lines ScalableBufferData
+  , rsiRobotBodies   :: PrimitiveArray Lines ScalableBufferData
+  , rsiRobotRadars   :: PrimitiveArray Lines ScalableBufferData
+  , rsiRobotGuns     :: PrimitiveArray Lines ScalableBufferData
+  , rsiRobotLifebars :: PrimitiveArray Lines ScalableBufferData
   }
 
 bulletCol :: V3 Float
@@ -37,7 +38,7 @@ bulletCol = mkRGB 0xFF 0x88 0x88
 bulletBuf :: MonadIO m => Rules -> ContextT w os f m (Buffer os (B4 Float))
 bulletBuf _ = do
   let numEdges :: Num a => a
-      numEdges = 50
+      numEdges = 10
       mkPt i =
         let ang = i * 2 * pi / numEdges
         in V4 (cos ang) (sin ang) 0 1
@@ -46,7 +47,7 @@ bulletBuf _ = do
   writeBuffer buf 0 pts
   return buf
 
-bulletInfo :: Bullet -> (V2 Float, V2 Float, Float, V3 Float)
+bulletInfo :: Bullet -> PASC
 bulletInfo = do
   power <- realToFrac <$> view bulPower
   pos <- fmap realToFrac <$> view bulPos
@@ -63,46 +64,59 @@ worldShader rules =
      scalableShader screenSize =<< toPrimitiveStream rsiRobotBodies
      scalableShader screenSize =<< toPrimitiveStream rsiRobotRadars
      scalableShader screenSize =<< toPrimitiveStream rsiRobotGuns
+     scalableShader screenSize =<< toPrimitiveStream rsiRobotLifebars
   where screenSize = round <$> rules^.ruleArenaSize
+
+type FiveX a = (a, a, a, a, a)
+
+initRenderWorld
+  :: MonadIO m =>
+     Rules
+     -> ContextT w os f m
+          (FiveX (Buffer os (B4 Float)))
+initRenderWorld rules =
+  (,,,,) <$> bulletBuf  rules
+         <*> chassisBuf rules
+         <*> gunBuf     rules
+         <*> radarBuf   rules
+         <*> lifebarBuf rules
 
 renderWorld
   :: (Num a, ContextColorFormat c,
       Color c Float ~ V3 a)
      => Rules
      -> IORef WorldState
+     -> FiveX (Buffer os (B4 Float))
      -> CompiledShader os (ContextFormat c ds) RoboShaderInput
      -- -> CompiledShader os (ContextFormat c ds) (PrimitiveArray Lines (B4 Float))
      -> ContextT w os (ContextFormat c ds) IO ()
-renderWorld rules worldStateRef shader = do
+renderWorld rules worldStateRef buffers shader = do
   worldState <- liftIO (readIORef worldStateRef)
 
-  bullet  <- bulletBuf  rules
-  chassis <- chassisBuf rules
-  gun     <- gunBuf     rules
-  radar   <- radarBuf   rules
+  let (bullet, chassis, gun, radar, lifebar) = buffers
 
   let bullets = worldState^.wldBullets
       bots    = worldState^.wldBots
 
-      bulletInfos  = fmap bulletInfo  bullets
-      chassisInfos = fmap chassisInfo bots
-      gunInfos     = fmap gunInfo     bots
-      radarInfos   = fmap radarInfo   bots
+      mkBuffer f xs =
+        do let len = length xs
+           buf <- newBuffer len
+           when (len > 0) $
+             writeBuffer buf 0 (manyToList (fmap f xs))
+           return buf
 
-      mkBuffer v = do buf <- newBuffer (length v)
-                      writeBuffer buf 0 (manyToList v)
-                      return buf
-
-  bulPosBuf     <- mkBuffer bulletInfos
-  chassisPosBuf <- mkBuffer chassisInfos
-  gunPosBuf     <- mkBuffer gunInfos
-  radarPosBuf   <- mkBuffer radarInfos
+  bulPosBuf     <- mkBuffer bulletInfo bullets
+  chassisPosBuf <- mkBuffer chassisInfo bots
+  gunPosBuf     <- mkBuffer gunInfo bots
+  radarPosBuf   <- mkBuffer radarInfo bots
+  lifebarPosBuf <- mkBuffer (lifebarInfo rules) bots
 
   render $ do
     clearContextColor (V3 0 0 0)
-    rsiBullets     <- makeScaledCopies LineLoop bullet  bulPosBuf
-    rsiRobotBodies <- makeScaledCopies LineLoop chassis chassisPosBuf
-    rsiRobotGuns   <- makeScaledCopies LineLoop gun     gunPosBuf
-    rsiRobotRadars <- makeScaledCopies LineLoop radar   radarPosBuf
+    rsiBullets       <- makeScaledCopies LineLoop bullet  bulPosBuf
+    rsiRobotBodies   <- makeScaledCopies LineLoop chassis chassisPosBuf
+    rsiRobotGuns     <- makeScaledCopies LineLoop gun     gunPosBuf
+    rsiRobotRadars   <- makeScaledCopies LineLoop radar   radarPosBuf
+    rsiRobotLifebars <- makeScaledCopies LineLoop lifebar lifebarPosBuf
     shader RoboShaderInput{..}
 
