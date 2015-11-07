@@ -52,12 +52,12 @@ module Game.Robo.Core.Types
 
 import           Control.Concurrent
 import           Control.DeepSeq
-import           Control.Monad.Free.Church   (F (..), liftF)
+import           Control.Monad.Free.Church  (F (..), liftF)
 import           Control.Monad.Random
 import           Control.Monad.RWS.Strict
-import           GHC.Generics                (Generic)
+import           GHC.Generics               (Generic)
 
-import           Game.Robo.Core.Many.Vector  as Many
+import           Game.Robo.Core.Many.Vector as Many
 import           Game.Robo.Core.Types.Maths
 
 ---------------------------------

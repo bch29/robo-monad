@@ -119,6 +119,8 @@ getTicks = maybe 0 (round . (* 1000)) <$> liftIO getTime
 
 runRendering
   :: WindowConf
+     -- ^ The argument passed is a `loop` function, which should be called with
+     -- the main rendering action once initialisation is done.
      -> (forall os.
          (ContextT GLFWWindow os (ContextFormat RGBFloat ()) IO () ->
           ContextT GLFWWindow os (ContextFormat RGBFloat ()) IO ()) ->

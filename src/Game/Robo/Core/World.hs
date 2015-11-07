@@ -36,7 +36,6 @@ import           Data.Time.Clock
 import           Graphics.GPipe
 import           Graphics.GPipe.Context.GLFW
 import           Lens.Micro.Platform
--- import           System.Mem
 
 import           Game.Robo.Core
 import           Game.Robo.Core.Bot

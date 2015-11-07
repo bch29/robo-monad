@@ -16,39 +16,35 @@ uses all of those.
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoMonomorphismRestriction  #-}
-{-# LANGUAGE RankNTypes  #-}
-{-# LANGUAGE TypeFamilies  #-}
+{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 module Game.Robo.Core
   ( runRobo
   , runRoboContext
   , evalRoboContext
-  , runPureRoboContext
-  , forceRoboContext
   , iterateRoboContext
   , gameActions
   , startGameLoop
-  , printNum
   , module X
   ) where
 
-import           Control.DeepSeq             (NFData (rnf))
-import           Control.Exception           (evaluate)
-import           Control.Monad.Free.Church   (iterM)
-import           Control.Monad.Random        (MonadRandom (getRandom, getRandoms,
-                                                           getRandomR, getRandomRs),
-                                              StdGen, runRand)
+import           Control.Concurrent         (threadDelay)
+import           Control.DeepSeq            (NFData (rnf))
+import           Control.Exception          (evaluate)
+import           Control.Monad.Free.Church  (iterM)
+import           Control.Monad.Random       (MonadRandom(
+                                                 getRandom , getRandoms,
+                                                 getRandomR, getRandomRs))
 import           Control.Monad.RWS.Strict
 import           Control.Monad.State.Strict
-import           Data.IORef                  (IORef, readIORef, writeIORef)
-import           Data.Maybe                  (fromMaybe)
-import           Lens.Micro.Platform
-import           Control.Concurrent          (threadDelay)
+import           Data.IORef                 (IORef, readIORef, writeIORef)
+import           Data.Maybe                 (fromMaybe)
 
-import           Game.Robo.Core.Lenses       as X
-import           Game.Robo.Core.Rules        as X
-import           Game.Robo.Core.Types        as X
+import           Game.Robo.Core.Lenses      as X
+import           Game.Robo.Core.Rules       as X
+import           Game.Robo.Core.Types       as X
 
 -- | Enables us to use another StateT while still being able
 -- to access the underlying state.
@@ -100,14 +96,6 @@ interpretRobo robo =
          f rs
   where lift2 = lift . Wrapper
 
-
--- | Runs an action in a stateful context, returning the resulting state,
--- random number generator and message log along with the result of the action.
-runPureRoboContext :: PureRoboContext s a -> StdGen -> Rules -> s -> (a, s, String, StdGen)
-runPureRoboContext ctx gen rules st = (res, st', lg, gen')
-  where noCtx = runRoboContext ctx rules st
-        ((res, st', lg), gen') = runRand noCtx gen
-
 -- | Runs a contextual action, returning the results, state and message log.
 runRoboContext :: Monad m => RoboContextT s m a -> Rules -> s -> m (a, s, String)
 runRoboContext = runRWST
@@ -117,12 +105,6 @@ evalRoboContext :: Monad m => RoboContextT s m a -> Rules -> s -> m a
 evalRoboContext ctx rules st = do
   (res, _, _) <- runRoboContext ctx rules st
   return res
-
--- | Forces the evaluation of all parts of an I/O-capable piece of state.
-forceRoboContext :: (MonadState s m, MIO m, NFData s) => m ()
-forceRoboContext = do
-  s <- get
-  liftIO $ evaluate (rnf s)
 
 -- | Do a contextual action until it returns Nothing, making sure to always
 -- fully evaluate the state and print out the contents of the log after
@@ -160,11 +142,6 @@ gameActions = GameActions
   -- , actionDraw     = Nothing
   , actionKeyboard = Nothing
   }
-
-printNum :: (MonadState s m, MIO m, Foldable t) => Getter s (t a) -> m ()
-printNum l = do
-  num <- length <$> use l
-  liftIO (print num)
 
 -- | Starts the game loop given a set of rules, an initial state,
 -- and a set of actions.

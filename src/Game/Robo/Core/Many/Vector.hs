@@ -1,7 +1,7 @@
 module Game.Robo.Core.Many.Vector where
 
-import           Data.Vector                 (Vector)
-import qualified Data.Vector                 as V
+import           Data.Vector (Vector)
+import qualified Data.Vector as V
 
 type Many = Vector
 
