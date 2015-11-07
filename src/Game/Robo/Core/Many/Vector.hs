@@ -1,9 +1,7 @@
 module Game.Robo.Core.Many.Vector where
 
-import           Control.Parallel.Strategies
 import           Data.Vector                 (Vector)
 import qualified Data.Vector                 as V
-import           Data.Vector.Strategies
 
 type Many = Vector
 
@@ -51,6 +49,3 @@ zipWithManyM = V.zipWithM
 
 zipWithManyM_ :: Monad m => (a -> b -> m c) -> Many a -> Many b -> m ()
 zipWithManyM_ = V.zipWithM_
-
-parMany :: NFData a => Strategy (Many a)
-parMany = parVector 4

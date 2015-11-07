@@ -4,7 +4,6 @@ import           Control.Monad (replicateM, zipWithM, zipWithM_)
 import           Data.List     (partition)
 import           Data.Vector   (Vector)
 import qualified Data.Vector   as V
-import           Control.Parallel.Strategies
 
 type Many = []
 
@@ -52,6 +51,3 @@ zipWithManyM = zipWithM
 
 zipWithManyM_ :: Monad m => (a -> b -> m c) -> Many a -> Many b -> m ()
 zipWithManyM_ = zipWithM_
-
-parMany :: NFData a => Strategy (Many a)
-parMany = parList rpar

@@ -13,10 +13,10 @@ Portability : non-portable
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE OverloadedLists           #-}
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
-{-# LANGUAGE OverloadedLists           #-}
 
 module Game.Robo.Core.World (runWorld) where
 
@@ -26,7 +26,6 @@ import           Control.Monad
 import           Control.Monad.Random
 import           Control.Monad.Reader
 import           Control.Monad.State
-import           Control.Parallel.Strategies
 import           Data.Array.IO
 import           Data.IORef
 import           Data.Maybe
@@ -65,8 +64,8 @@ stepBullets
 stepBullets passed = do
   size <- view ruleArenaSize
   bullets <- use wldBullets
-  let stepped = updateBullet passed <$> bullets -- `using` parMany
-      filteredBuls = filterMany (isBulletInArena size) stepped -- `using` parMany
+  let stepped = updateBullet passed <$> bullets
+      filteredBuls = filterMany (isBulletInArena size) stepped
   wldBullets .= filteredBuls
 
 listToSet :: Ord a => Many a -> Set a
@@ -89,7 +88,7 @@ handleBulletCollisions = do
 
       checkForBot botState = do
         rect <- botRect botState
-        let collidedBullets = findCollisions rect grid -- `using` parMany
+        let collidedBullets = findCollisions rect grid
             collisions = mkCollision (view botID botState) <$> listFromVector collidedBullets
         return collisions
 
