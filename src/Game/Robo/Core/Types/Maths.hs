@@ -25,16 +25,16 @@ module Game.Robo.Core.Types.Maths
        , Rect (..), rectAngle, rectCentre, rectSize
        , vec
 
-       , module Linear.V2
-       , module Linear.Vector
+       , module L
        )
        where
 
 import           Control.DeepSeq
 import           Control.Monad.Random
 import           Lens.Micro.Platform
-import           Linear.V2
-import           Linear.Vector
+import           Linear.V2 as L
+import           Linear.Vector as L
+import           Linear.Metric as L
 
 ---------------------------------
 --  Core Types

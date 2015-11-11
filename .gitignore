@@ -12,6 +12,7 @@ cabal-dev/
 *.ps
 *.bak
 *.tix
+*.eventlog
 cabal.config
 dist-sandbox
 dist

@@ -26,4 +26,5 @@ myRules = defaultRules
 
 -- Start the world with our ruleset and robots.
 main ∷ IO ()
-main = runWorld myRules [wallhugger, crazy]
+-- main = runWorld myRules [spec wallhugger, spec crazy]
+main = runWorld myRules (replicate 50 (spec wallhugger))

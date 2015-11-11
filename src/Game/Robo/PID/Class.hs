@@ -37,5 +37,5 @@ instance Floating a => Pidable a (V2 a) where
   mulScalar = (*^)
   pidDiff   = (-)
   pidSum    = (+)
-  magnitude = vecMag
+  magnitude = norm
   pidZero   = 0

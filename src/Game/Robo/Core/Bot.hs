@@ -14,18 +14,19 @@ Portability : non-portable
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE UnicodeSyntax         #-}
+{-# LANGUAGE RankNTypes         #-}
 
 module Game.Robo.Core.Bot where
 
-import           Control.Concurrent
 import           Control.DeepSeq
 import           Control.Monad
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
-import           Control.Monad.Writer.Strict
 import           Data.List
 import           Data.Ord
 import           Lens.Micro.Platform
+import           Pipes
+import           Pipes.Concurrent
 
 import           Game.Robo.Core
 import           Game.Robo.Maths
@@ -212,14 +213,14 @@ tryScan bots = do
       filterScannable = filterMany (\b -> isNotUs b && isInScanSegment b)
       -- sort by distance
       sortByDistance  =
-        sortBy (comparing (vecMag . subtract pos . view botPos)) .
+        sortBy (comparing (norm . subtract pos . view botPos)) .
         manyToList
 
   -- return the closet bot, if it exists
   return $ case sortByDistance . filterScannable $ bots of
     bot : _ ->
       let thatPos = bot^.botPos
-          dist = vecMag (pos - thatPos)
+          dist = norm (pos - thatPos)
           ang  = angNormAbsolute $ pos `angleTo` thatPos
       in  Just $ ScanData dist ang
     _       -> Nothing
@@ -235,82 +236,91 @@ testBulletHit botState bul = do
 
 -- | Print a log from a robot with the given name to the console.
 writeLog :: String -> [String] -> IO ()
-writeLog name = putStr . unlines . map ((name ++ ": ") ++)
+writeLog name = putStr . unlines . map ((name ++) . (": " ++ ))
 
-botMain :: BotSpec -> Chan BotUpdate -> Chan BotResponse -> IOBot ()
-botMain spec updateChan responseChan =
-  case spec of
-    BotSpec{..} -> do
-      -- run the robot's initialisation method, listening to the log so that
-      -- we can print it out
-      ((_, userState1), lg) <- listen $ runRobo onInit botInitialState
-      state' <- get
+respond :: StB m => Many Bullet -> Producer' BotResponse m ()
+respond bullets = do
+  bid <- use botID
+  s <- get
+  s `deepseq` yield BotResponse
+    { responseID = bid
+    , responseState = s
+    , responseBullets = bullets
+    }
 
-      liftIO $ putStr lg
+botInit :: (Ru m, MIO m, StB m, Ra m) => BotSpec s -> Producer' BotResponse m s
+botInit BotSpec{..} =
+  do -- run the robot's initialisation method, listening to the log so that
+     -- we can print it out
+     -- ((_, userState), lg) <- listen . lift $ runRobo onInit botInitialState
+     (_, userState) <- lift $ runRobo onInit botInitialState
 
-      -- send the initialisation results back to the main thread
-      initialBid <- use botID
-      liftIO $ writeChan responseChan BotResponse
-        { responseID = initialBid
-        , responseState = state'
-        , responseBullets = mempty }
+     -- liftIO $ putStr lg
 
-      let step userState = do
-            -- wait until the main thread tells us to advance
-            BotUpdate{..} <- liftIO $ readChan updateChan
+     -- send the initialisation results back to the main thread
+     respond mempty
 
-            -- sync up our state with what the world thinks our state is
-            put updateState
-            bid <- use botID
+     return userState
 
-            let wasAggressor col = col^.bcolAggressor == bid
-                wasVictim    col = col^.bcolVictim    == bid
-                victimCollisions = filterMany wasVictim updateBulletCollisions
-                bulletHit = any wasAggressor updateBulletCollisions
-                wasHit    = not (null victimCollisions)
-                damageReceived = sum . fmap (view bcolPower) $ victimCollisions
+botStep :: (Ru m, MIO m, StB m, Ra m) => BotSpec s -> BotUpdate -> s -> m (Many Bullet, s)
+botStep BotSpec{..} BotUpdate{..} userState =
+  do -- sync up our state with what the world thinks our state is
+     put updateState
+     bid <- use botID
 
-            when wasHit $ botLife -= damageReceived
+     let wasAggressor col = col^.bcolAggressor == bid
+         wasVictim    col = col^.bcolVictim    == bid
+         victimCollisions = filterMany wasVictim updateBulletCollisions
+         bulletHit = any wasAggressor updateBulletCollisions
+         wasHit    = not (null victimCollisions)
+         damageReceived = sum . fmap (view bcolPower) $ victimCollisions
 
-            -- update the robot state
-            (bullets, userState') <- do
-              -- motion
-              mwcol <- stepBotMotion updatePassed updateWorld
-              -- gun rotation / firing
-              bullets <- stepBotGun updatePassed updateDoTick
-              -- energy
-              stepBotEnergy updatePassed
-              -- radar rotation
-              stepBotRadar updatePassed
-              -- radar scanning
-              mscan <- tryScan (updateWorld^.wldBots)
+     when wasHit $ botLife -= damageReceived
 
-              -- run the user callbacks
-              let roboActions = do
-                    -- nullary actions
-                    when wasHit    onHitByBullet
-                    when bulletHit onBulletHit
-                    when updateDoTick    onTick
-                    -- unary actions
-                    maybe (return ()) onScan        mscan
-                    maybe (return ()) onCollideWall mwcol
-              (_, userState') <- runRobo roboActions userState
-              return (bullets, userState')
+     -- update the robot state
 
-            -- send our new state, and any bullets fired, back to the main thread
-            botState' <- get
-            liftIO $ botState' `deepseq` writeChan responseChan BotResponse
-              { responseID      = bid
-              , responseState   = botState'
-              , responseBullets = bullets }
+     -- motion
+     mwcol <- stepBotMotion updatePassed updateWorld
+     -- gun rotation / firing
+     bullets <- stepBotGun updatePassed updateDoTick
+     -- energy
+     stepBotEnergy updatePassed
+     -- radar rotation
+     stepBotRadar updatePassed
+     -- radar scanning
+     mscan <- tryScan (updateWorld^.wldBots)
 
-            -- loop indefinitely (until the main thread dies)
-            return $ Just userState'
-      -- start the main loop
-      iterateRoboContext userState1 step
+     -- run the user callbacks
+     let roboActions = do
+           -- nullary actions
+           when wasHit    onHitByBullet
+           when bulletHit onBulletHit
+           when updateDoTick    onTick
+           -- unary actions
+           maybe (return ()) onScan        mscan
+           maybe (return ()) onCollideWall mwcol
+     (_, userState') <- runRobo roboActions userState
+     return (bullets, userState')
+
+botPipe :: (Ru m, MIO m, StB m, Ra m) => BotSpec s -> Pipe BotUpdate BotResponse m ()
+botPipe spec = do
+  userState1 <- botInit spec
+  let loop userState =
+        do update <- await
+           (bullets, userState') <- lift $ botStep spec update userState
+           respond bullets
+           loop userState'
+  loop userState1
 
 -- | Run a robot. This never terminates and is designed to be called in its own thread.
--- Communicates with the World thread via channels.
-runBot :: Rules -> BotSpec -> BotState -> Chan BotUpdate -> Chan BotResponse -> IO ()
-runBot rules spec botState updateChan responseChan =
-  evalRoboContext (botMain spec updateChan responseChan) rules botState
+-- Communicates with the World thread via the provided input and output.
+runBot
+  :: (Ru m, Ra m, MIO m)
+     => BotSpec s
+     -> BotState
+     -> Input BotUpdate
+     -> Output BotResponse
+     -> m ()
+runBot spec botState input output =
+  let pipeline = fromInput input >-> botPipe spec >-> toOutput output
+  in evalStateT (runEffect pipeline) botState
