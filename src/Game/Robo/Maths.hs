@@ -26,7 +26,6 @@ module Game.Robo.Maths
   -- * Vectors
     angleTo, angleToHorizontal
   , vecFromAngle, rotateVec
-  , vecMag, vecNorm
   , vecPerpR, vecPerpL
   , inSegment, inSegmentCentre
 
@@ -44,7 +43,6 @@ module Game.Robo.Maths
 
 import           Game.Robo.Core.Types.Maths
 import           Lens.Micro.Platform
--- import Linear.Vector
 
 -----------------------------------
 -- VECTORS
@@ -63,17 +61,9 @@ vecFromAngle :: Floating a => a -> V2 a
 vecFromAngle ang = vec (cos ang) (sin ang)
 
 rotateVec :: RealFloat a => a -> V2 a -> V2 a
-rotateVec ang v = vecFromAngle newAng ^* vecMag v
+rotateVec ang v = vecFromAngle newAng ^* norm v
   where oldAng = angleToHorizontal v
         newAng = oldAng + ang
-
--- | Get the magnitude of the vector.
-vecMag :: Floating a => V2 a -> a
-vecMag (V2 x y) = sqrt (x*x + y*y)
-
--- | Normalise a vector.
-vecNorm :: Floating a => V2 a -> V2 a
-vecNorm vec = vec ^* (1 / vecMag vec)
 
 -- | The vector perpendicular to this one on the right-hand side.
 vecPerpR :: Num a => V2 a -> V2 a
@@ -91,7 +81,7 @@ vecPerpL (V2 x y) = vec (-y) x
 -- inSegment :: RealFloat a => a -> a -> a -> V2 a -> Bool
 inSegment :: RealFloat a => a -> a -> a -> V2 a -> Bool
 inSegment ang1 ang2 radius xy = withinDist && withinAngles
-  where withinDist = vecMag xy <= radius
+  where withinDist = norm xy <= radius
         ang1' = angNormAbsolute ang1
         ang2' = angNormAbsolute ang2
         xyAng = angNormAbsolute (angleToHorizontal xy)
@@ -142,21 +132,21 @@ angNormAbsolute ang =
 
 -- | Is a point within a rectangle?
 withinRect :: Rect -> Vec -> Bool
-withinRect rect vec = x >= 0 && y >= 0 && x <= maxX && y <= maxY
-  where relVec    = vec - (rect^.rectCentre)
+withinRect rect v = x >= 0 && y >= 0 && x <= maxX && y <= maxY
+  where relVec    = v - (rect^.rectCentre)
         rotated   = rotateVec (rect^.rectAngle) relVec
         (V2 x y) = rotated + 0.5 *^ (rect^.rectSize)
         (V2 maxX maxY) = rect^.rectSize
 
 -- | Get all of the corners of the rectangle, in clockwise order.
 rectCorners :: Rect -> [Vec]
-rectCorners rect = (shift . rotate) basic
+rectCorners rect = (shift . rot) basic
   where (V2 sx sy) = (rect^.rectSize) ^* 0.5
         basic = [ vec sx sy
                 , vec sx (-sy)
                 , vec (-sx) (-sy)
                 , vec (-sx) sy ]
-        rotate = map (rotateVec (rect^.rectAngle))
+        rot = map (rotateVec (rect^.rectAngle))
         shift  = map (+ rect^.rectCentre)
 
 -- | Do there exist any points that are contained within both rectangles?
@@ -219,7 +209,7 @@ scanWall pos arenaSize dir =
 getWallDist :: RealFloat a => V2 a -> V2 a -> V2 a -> a
 getWallDist pos arenaSize dir =
   let xy = scanWall pos arenaSize dir
-  in  vecMag (xy - pos)
+  in  norm (xy - pos)
 
 {-
 Helper functions for scanWall.

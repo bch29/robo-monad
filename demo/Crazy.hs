@@ -102,7 +102,7 @@ myOnCollideWall dat = do
   when (a1 > 0.3 && a2 > 0.3) (chooseAngle (wcolAngle dat))
   setThrust =<< (*) 500 <$> use direction
 
-crazy ∷ BotSpec
+crazy ∷ BotSpec CrazyState
 crazy = BotSpec
   { botName         = "crazy"
   , botInitialState = myInitialState

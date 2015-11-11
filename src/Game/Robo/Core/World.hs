@@ -15,34 +15,45 @@ Portability : non-portable
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE OverloadedLists           #-}
 {-# LANGUAGE RankNTypes                #-}
-{-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 
 module Game.Robo.Core.World (runWorld) where
 
-import           Control.Concurrent
+import           Control.Concurrent                hiding (yield)
+import           Control.Concurrent.Async
 import           Control.DeepSeq
 import           Control.Monad
 import           Control.Monad.Random
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Data.Array.IO
-import           Data.IORef
-import           Data.Maybe
-import           Data.Set                    (Set)
-import qualified Data.Set                    as S
-import           Data.Time.Calendar          (Day (..))
+import           Data.Maybe                        (catMaybes)
+import           Data.Set                          (Set)
+import qualified Data.Set                          as S
+import           Data.Time.Calendar                (Day (..))
 import           Data.Time.Clock
 import           Graphics.GPipe
-import           Graphics.GPipe.Context.GLFW
+import           Graphics.GPipe.Context.GLFW       (WindowConf(..))
+import           Graphics.GPipe.Context.GLFW.Input (windowShouldClose)
 import           Lens.Micro.Platform
+import           Pipes                             hiding (each)
+import           Pipes.Concurrent
+import           System.Exit                       (exitSuccess)
 
 import           Game.Robo.Core
 import           Game.Robo.Core.Bot
 import           Game.Robo.Core.Collision
-import           Game.Robo.Maths
+import           Game.Robo.Core.Input
 import           Game.Robo.Render
 import           Game.Robo.Render.World
+
+data Event
+  = IncSPS
+  | DecSPS
+  | ResetSPS
+  | Quit
+  | Step Double -- The time since the last step
+         Bool -- Should we do a bot tick or not?
 
 -- | Move a bullet along.
 updateBullet :: Double -> Bullet -> Bullet
@@ -79,7 +90,7 @@ handleBulletCollisions
   :: (StW m, Ru m) =>
      m (Many BulletCollision)
 handleBulletCollisions = do
-  minSize <- vecMag <$> view ruleBotSize
+  minSize <- norm <$> view ruleBotSize
   arenaSize <- view ruleArenaSize
   bullets <- use wldBullets
   let entities = pointEntity (view bulPos) <$> bullets
@@ -111,15 +122,15 @@ handleBulletCollisions = do
 pruneBots :: StW m => m (Many BotState)
 pruneBots = do
   bots <- use wldBots
-  chans <- use wldUpdateChans
-  let ((aliveChans, aliveBots), (_, deadBots)) =
-        partitionMany ((> 0) . view botLife . snd) (zipMany chans bots) & each %~ unzipMany
+  outputs <- use wldBotOutputs
+  let ((aliveOutputs, aliveBots), (_, deadBots)) =
+        partitionMany ((> 0) . view botLife . snd) (zipMany outputs bots) & each %~ unzipMany
   -- if there are dead bots, we need to get rid of them and assign new IDs to the rest
   if not (null deadBots) then do
     -- assign new bot IDs
     let updated = imapMany (set botID . (+1)) aliveBots
     wldBots .= updated
-    wldUpdateChans .= aliveChans
+    wldBotOutputs .= aliveOutputs
 
     return deadBots
   else return mempty
@@ -134,7 +145,6 @@ stepWorld passed = do
   stepBullets passed
   collisions <- handleBulletCollisions
   return (collisions, deadBots)
-  -- return ([], deadBots)
 
 -- | Gets random positions within the given size for bots to start in.
 generateSpawnPositions :: Ra m => Int -> Scalar -> Vec -> m (Many Vec)
@@ -143,26 +153,31 @@ generateSpawnPositions count margin size =
 
 -- | Collect the responses to a request from all the robots,
 -- blocking until every robot has responded.
-collectResponses :: Chan BotResponse -> Int -> IO (Many BotResponse)
-collectResponses chan numBots = do
-    responses <- newArray (1, numBots) Nothing
-      :: IO (IOArray BotID (Maybe BotResponse))
+collectResponses :: Input BotResponse -> Int -> IO (Many BotResponse)
+collectResponses input numBots = do
+  responses <- newArray (1, numBots) Nothing
+    :: IO (IOArray BotID (Maybe BotResponse))
 
-    let collect 0 = return ()
-        collect n = do
-          response <- readChan chan
-          writeArray responses (responseID response) (Just response)
-          collect (n - 1)
+  let collect 0 = return ()
+      collect n = do
+        response <- atomically (recv input)
+        case response of
+          Just resp -> writeArray responses (responseID resp) response
+          Nothing -> return ()
+        collect (n - 1)
 
-    collect numBots
+  collect numBots
 
-    results <- getElems responses
-    return . manyFromList . catMaybes $ results
+  results <- getElems responses
+  return . manyFromList . catMaybes $ results
 
 -- | Collect responses and use them to update the world state.
-updateWorldWithResponses :: (StW m, Ru m, MIO m) => Chan BotResponse -> Int -> m ()
-updateWorldWithResponses chan numBots = do
-  responses <- liftIO $ collectResponses chan numBots
+updateWorldWithResponses :: (StW m, Ru m, MIO m) => m ()
+updateWorldWithResponses = do
+  Just input <- use wldBotInput
+  numBots <- length <$> use wldBots
+  responses <- liftIO (collectResponses input numBots)
+
   let newBots = fmap responseState responses
       bullets = responseBullets =<< responses
   wldBots    .= newBots
@@ -176,7 +191,7 @@ getTime = round
        <$> getCurrentTime
 
 -- | Change the SPS, making sure to clamp it to between the min and max.
-setSPS :: (StW m, Ru m) => Int -> m ()
+setSPS :: (StW m, Ru m, MIO m) => Int -> m ()
 setSPS newSPS = do
   minSPS <- asks (view ruleMinSPS)
   maxSPS <- asks (view ruleMaxSPS)
@@ -184,47 +199,17 @@ setSPS newSPS = do
           | newSPS > maxSPS = maxSPS
           | otherwise       = newSPS
 
-  time <- use wldTime
-  wldTime0     .= time
-  wldStepsDone .= 0
-  wldSPS       .= sps
+  spsVar <- use wldSPSVar
+  liftIO $ putMVar spsVar sps
+  wldSPS .= sps
 
 -- | Modify the SPS with a pure function, clamping between the min and max.
-modifySPS :: (StW m, Ru m) => (Int -> Int) -> m ()
+modifySPS :: (StW m, Ru m, MIO m) => (Int -> Int) -> m ()
 modifySPS f = setSPS . f =<< use wldSPS
 
 -- | The World's main logic action.
-worldMain :: (StW m, Ru m, Ra m, MIO m) => m ()
-worldMain = do
-  -- get timing values
-  time0     <- use wldTime0
-  time      <- liftIO getTime
-  stepsDone <- use wldStepsDone
-  sps       <- use wldSPS
-
-  -- update the stored time
-  wldTime .= time
-
-  -- only continue if we need to do more steps to catch up to where we should
-  -- be
-  let targetSteps = (time - time0) * sps `div` 1000
-  when (stepsDone < targetSteps) $ do
-    -- update the number of steps we have done
-    wldStepsDone += 1
-
-    -- work out whether we need to do a tick now
-    wldSinceTick += 1
-    sinceTick <- use wldSinceTick
-    tickSteps <- asks (view ruleTickSteps)
-    doTick <- if sinceTick >= tickSteps
-                 then do wldSinceTick -= tickSteps
-                         return True
-                 else return False
-
-    -- the time in seconds since the last step
-    defSps <- asks (view ruleDefaultSPS)
-    let passed = 1 / fromIntegral defSps
-
+worldMain :: (StW m, Ru m, Ra m, MIO m) => Event -> m ()
+worldMain (Step passed doTick) = do
     -- update the world, getting back bullet collisions and dead bots
     (bulletCollisions, deadBots) <- stepWorld passed
     let wasBotInvolved bid col = col^.bcolAggressor == bid
@@ -247,26 +232,21 @@ worldMain = do
         botUpdates = fmap mkUpdate botStates
 
     -- get the channels out of the world state
-    updateChans <- use wldUpdateChans
-    Just responseChan <- use wldResponseChan
-    liftIO $ zipWithManyM_ writeChan updateChans botUpdates
+    updateOutputs <- use wldBotOutputs
+    liftIO $ zipWithManyM_ (\out -> async . atomically . send out) updateOutputs botUpdates
 
     -- get the responses back
-    numBots <- length <$> use wldBots
-    updateWorldWithResponses responseChan numBots
-    return ()
+    updateWorldWithResponses
 
--- | Handle keyboard input.
-worldKbd :: (StW m, Ru m, MIO m) => Char -> m ()
-worldKbd '+' = modifySPS (+10)
-worldKbd '-' = modifySPS (subtract 10)
-worldKbd '=' = do
+worldMain IncSPS = modifySPS (+10)
+worldMain DecSPS = modifySPS (subtract 10)
+worldMain ResetSPS = do
   sps <- asks (view ruleDefaultSPS)
   setSPS sps
-worldKbd _ = return ()
+worldMain Quit = liftIO exitSuccess
 
 -- | Initialise the game.
-worldInit :: (StW m, Ru m, MIO m, Ra m) => [BotSpec] -> m ()
+worldInit :: (StW m, Ru m, MIO m, Ra m) => [BotSpec'] -> m ()
 worldInit specs = do
   -- initialise the bot states
   let numBots = length specs
@@ -278,29 +258,115 @@ worldInit specs = do
   let bots = imapMany (initialBotState life mass . (+1)) positions
   wldBots .= bots
 
-  -- initialise the channels
-  updateChans  <- liftIO $ replicateManyM numBots newChan
-  responseChan <- liftIO newChan
+  -- initialise the input/outputs
+  let doSpawn = unzipMany <$> replicateManyM numBots (liftIO . spawn $ bounded 1)
+  (updateOutputs, updateInputs) <- doSpawn
+  (responseOutput, responseInput) <- liftIO (spawn unbounded)
 
   -- start the bot threads, each with their own update channel
   rules <- ask
-  let runBot' (spec, botState, updChan) =
-        runBot rules spec botState updChan responseChan
-  tids <- liftIO $ mapManyM (forkIO . runBot') (zipMany3 (manyFromList specs) bots updateChans)
+  let runBot' args =
+        -- explicit 'case' is required due to existential quantification
+        case args of
+          (BotSpec' spec, botState, updIn) ->
+            runReaderT (runBot spec botState updIn responseOutput) rules
 
-  -- make sure the world knows what time it is (Robo time!)
-  time <- liftIO getTime
-  wldTime  .= time
-  wldTime0 .= time
+  tids <- liftIO . mapManyM (forkIO . runBot')
+                 $ zipMany3 (manyFromList specs)
+                            bots
+                            updateInputs
+
+  -- store the channels in the world state
+  wldBotOutputs .= updateOutputs
+  wldBotInput .= Just responseInput
 
   -- get the responses to initialisation
-  updateWorldWithResponses responseChan numBots
+  updateWorldWithResponses
   -- assign bots their thread IDs
   wldBots %= zipManyWith (set botTID) (fmap Just tids)
 
-  -- store the channels in the world state
-  wldUpdateChans .= updateChans
-  wldResponseChan .= Just responseChan
+-- | Map character input to game events.
+charToEvent :: Char -> Maybe Event
+charToEvent '+' = Just IncSPS
+charToEvent '-' = Just DecSPS
+charToEvent '=' = Just ResetSPS
+charToEvent 'q' = Just Quit
+charToEvent _   = Nothing
+
+-- | Encapsulates timing information to simplify 'stepController'.
+data Timing =
+  Timing
+  { time0 :: Int
+  , sps :: Int
+  , stepsDone :: Int
+  , sinceTick :: Int
+  , timeNow :: Int
+  }
+
+-- | The main timing loop. Sends out events to the main world pipe whenever it
+-- needs to do a game step.
+stepController :: Rules -> MVar Int -> Producer Event IO ()
+stepController rules spsVar =
+  do let loop t@Timing{..} = do
+           -- delay the thread so we don't put too much work on the processor
+           lift (threadDelay 100)
+
+           -- calculate the number of steps we *should* have got to by the current time
+           let targetSteps = (timeNow - time0) * sps `div` 1000
+
+           (stepsDone', sinceTick') <-
+             -- if we need to do some steps...
+             if stepsDone < targetSteps
+             then
+               do let tickSteps = rules^.ruleTickSteps
+                      defaultSPS = rules^.ruleDefaultSPS
+                      -- the effective amount of time that has passed should be
+                      -- based on the default SPS in order to actually achieve the
+                      -- speedup/slowdown
+                      passed = 1 / fromIntegral defaultSPS
+
+                  -- do we need to do a bot tick?
+                  -- regardless, update steps done
+                  if sinceTick >= tickSteps
+                    then do yield (Step passed True)
+                            return (stepsDone + 1, 0)
+                    else do yield (Step passed False)
+                            return (stepsDone + 1, sinceTick + 1)
+             else return (stepsDone, sinceTick)
+
+           -- see if we need to change the SPS
+           newSPS <- lift $ tryTakeMVar spsVar
+           nextTime <- lift getTime
+
+           case newSPS of
+             Just sps' ->
+               -- if we do need to change the SPS, reset time0, steps done, etc
+               loop
+                 Timing
+                 { time0 = nextTime
+                 , sps = sps'
+                 , stepsDone = 0
+                 , sinceTick = 0
+                 , timeNow = nextTime }
+             Nothing ->
+               -- otherwise, just update everything
+               loop $ t { stepsDone = stepsDone'
+                        , sinceTick = sinceTick'
+                        , timeNow = nextTime }
+
+     -- get the initial SPS from the variable
+     sps <- lift $ takeMVar spsVar
+
+     -- start the main timing loop
+     time00 <- lift getTime
+     loop
+       Timing
+       { time0 = time00
+       , sps = sps
+       , stepsDone = 0
+       , sinceTick = 0
+       , timeNow = time00
+       }
 
 -- | Run a battle with the given rules and robots.
 --
@@ -309,7 +375,7 @@ worldInit specs = do
 -- like so:
 --
 -- > main = runWorld defaultRules [mybot1, mybot2, mybot3]
-runWorld :: Rules -> [BotSpec] -> IO ()
+runWorld :: Rules -> [BotSpec'] -> IO ()
 runWorld rules specs = do
   -- work out the world dimensions
   let screenSize = rules^.ruleArenaSize
@@ -317,34 +383,38 @@ runWorld rules specs = do
       winConf = WindowConf width height "RoboMonad"
 
   -- initialise the world state
-  let _wldBots      = mempty
-      _wldRect      = Rect (screenSize ^* 0.5) screenSize 0
-      _wldBullets   = mempty
-      _wldTime0     = 0
-      _wldTime      = 0
-      _wldStepsDone = 0
-      _wldSPS       = rules^.ruleDefaultSPS
-      _wldSinceTick = 0
-      _wldUpdateChans = mempty
-      _wldResponseChan = Nothing
+  let _wldBots       = mempty
+      _wldRect       = Rect (screenSize ^* 0.5) screenSize 0
+      _wldBullets    = mempty
+      _wldSPS        = rules^.ruleDefaultSPS
+      _wldBotOutputs = mempty
+      _wldBotInput   = Nothing
 
-      actionInit = Just (worldInit specs)
-      actionMain = Just worldMain
-      actionKeyboard = Just worldKbd
+  -- make the MVar that holds the steps per second
+  _wldSPSVar <- newMVar _wldSPS
 
-  stateRef <- newIORef WorldState{..}
+  -- use concurrent pipes to bring together input, animation and rendering
+  (worldOut, worldIn) <- liftIO $ spawn (latest WorldState{..})
+  (eventsOut, eventsIn) <- liftIO $ spawn unbounded
 
-  -- start the rendering thread
-  (renderTid, quitRef) <-
-    runRendering
-    winConf
-    (\loop ->
-       do initData <- initRenderWorld rules
-          shader <- compileShader (worldShader rules)
-          loop (renderWorld rules stateRef initData shader))
+  let mainPipe = for cat $ \e ->
+        do lift $ worldMain e
+           yield =<< get
 
-  -- start the game loop
-  startGameLoop rules stateRef quitRef GameActions{..}
+  let animationThread = do
+        worldInit specs
+        runEffect (fromInput eventsIn >-> mainPipe >-> toOutput worldOut)
 
-  -- finally kill the rendering thread
-  killThread renderTid
+      drawCheckQuit = do
+        s <- await
+        shouldQuit <- lift windowShouldClose
+        when shouldQuit (void . liftIO . atomically $ send eventsOut Quit)
+        return s
+
+      renderingThread = do
+        collectCharEvents eventsOut charToEvent
+        runEffect (fromInput worldIn >-> (drawCheckQuit >~ renderWorld rules))
+
+  _ <- async $ runEffect (stepController rules _wldSPSVar >-> toOutput eventsOut)
+  _ <- async $ runRendering winConf renderingThread
+  runReaderT (evalStateT animationThread WorldState{..}) rules

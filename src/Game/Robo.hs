@@ -18,6 +18,8 @@ module Game.Robo
     runWorld
   , Robo
   , BotSpec (..)
+  , BotSpec'
+  , spec
 
   -- * Accessors
   , getRule
@@ -68,6 +70,10 @@ import Game.Robo.Core.Lenses
 import Game.Robo.Core.World
 import Game.Robo.Core.Rules       as Rules
 import Game.Robo.Core.Types.Maths as MTypes
+
+-- | Wrap a 'BotSpec' so it can be passed to 'runWorld'.
+spec :: BotSpec s -> BotSpec'
+spec = BotSpec'
 
 ---------------------------------
 --  ACCESSORS

@@ -18,14 +18,12 @@ Portability : non-portable
 module Game.Robo.Render where
 
 import           Control.Arrow hiding (loop)
-import           Control.Concurrent (threadDelay, forkIO, ThreadId)
-import           Control.Monad (forever)
-import           Control.Monad.IO.Class
-import           Data.IORef
 import           Graphics.GPipe
 import           Graphics.GPipe.Context.GLFW
-import           Graphics.UI.GLFW (WindowHint(..), getTime)
+import           Graphics.UI.GLFW
 import           Lens.Micro.Platform
+import           Control.Monad.IO.Class (MonadIO(..))
+import           Control.Monad.Exception (MonadAsyncException)
 
 data ScalableRenderData = ScalableRenderData
   { srdPos  :: V2 Float
@@ -114,28 +112,12 @@ scalableShader winSize stream = do
   drawContextColor (const (ContextColorOption NoBlending (V3 True True True)))
                    fragmentStream
 
-getTicks :: (MonadIO m, Integral a) => m a
-getTicks = maybe 0 (round . (* 1000)) <$> liftIO getTime
-
 runRendering
-  :: WindowConf
-     -- ^ The argument passed is a `loop` function, which should be called with
-     -- the main rendering action once initialisation is done.
+  :: (MonadIO m, MonadAsyncException m)
+     => WindowConf
      -> (forall os.
-         (ContextT GLFWWindow os (ContextFormat RGBFloat ()) IO () ->
-          ContextT GLFWWindow os (ContextFormat RGBFloat ()) IO ()) ->
-         ContextT GLFWWindow os (ContextFormat RGBFloat ()) IO ())
-     -> IO (ThreadId, IORef Bool)
-runRendering windowConf action = do
+         ContextT GLFWWindow os (ContextFormat RGBFloat ()) m ())
+     -> m ()
+runRendering windowConf action =
   let context = newContext' [WindowHint'Resizable False] windowConf
-  windowCloseRef <- newIORef False
-  tid <- forkIO $ runContextT context (ContextFormatColor RGB8) $
-       let loop x =
-             forever
-             (do x
-                 swapContextBuffers
-                 shouldClose <- windowShouldClose
-                 liftIO $ writeIORef windowCloseRef shouldClose
-             )
-       in action loop
-  return (tid, windowCloseRef)
+  in runContextT context (ContextFormatColor RGB8) action

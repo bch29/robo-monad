@@ -2,6 +2,7 @@ module Game.Robo.Core.Many.Vector where
 
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Maybe (isJust)
 
 type Many = Vector
 
@@ -38,6 +39,9 @@ zipMany = V.zip
 zipMany3 :: Many a -> Many b -> Many c -> Many (a, b, c)
 zipMany3 = V.zip3
 
+zipMany4 :: Many a -> Many b -> Many c -> Many d -> Many (a, b, c, d)
+zipMany4 = V.zip4
+
 mapManyM :: Monad m => (a -> m b) -> Many a -> m (Many b)
 mapManyM = V.mapM
 
@@ -49,3 +53,6 @@ zipWithManyM = V.zipWithM
 
 zipWithManyM_ :: Monad m => (a -> b -> m c) -> Many a -> Many b -> m ()
 zipWithManyM_ = V.zipWithM_
+
+catMaybesMany :: Many (Maybe a) -> Many a
+catMaybesMany = V.map (\(Just x) -> x) . V.filter isJust

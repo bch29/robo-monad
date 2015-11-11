@@ -25,18 +25,11 @@ module Game.Robo.Core.Types
   ( Rules (..)
 
   , Robo (..), RoboF (..)
-  , Bot, IOBot
-  , World, IOWorld
-  , PureRoboContext
-
-  , RoboContextT
-
-  , GameActions (..)
 
   , WorldState (..)
 
   , BotID
-  , BotState (..), BotSpec (..)
+  , BotState (..), BotSpec (..), BotSpec' (..)
 
   , GunState (..), RadarState      (..)
   , Bullet   (..), BulletCollision (..)
@@ -44,7 +37,7 @@ module Game.Robo.Core.Types
 
   , BotUpdate (..), BotResponse (..)
 
-  , StB, StW, Ru, Ra, Wr, MIO
+  , StB, StW, Ru, Ra, MIO
 
   , module Many
   , module Game.Robo.Core.Types.Maths
@@ -55,6 +48,7 @@ import           Control.DeepSeq
 import           Control.Monad.Free.Church  (F (..), liftF)
 import           Control.Monad.Random
 import           Control.Monad.RWS.Strict
+import           Pipes.Concurrent
 import           GHC.Generics               (Generic)
 
 import           Game.Robo.Core.Many.Vector as Many
@@ -154,49 +148,12 @@ data RoboF s a where
 
 deriving instance Functor (RoboF s)
 
--- | The internal robot monad.
-type Bot = PureRoboContext BotState
-
--- | A bot that can do I/O.
-type IOBot = RoboContextT BotState IO
-
--- | The internal world monad.
-type World = PureRoboContext WorldState
-
--- | A world that can do I/O.
-type IOWorld = RoboContextT WorldState IO
-
--- | A pure context, based on Rand.
-type PureRoboContext s = RoboContextT s (Rand StdGen)
-
--- | A lot of computations take place within this context, with a Writer
--- for logging, a Reader to keep track of the battle rules and a Rand for
--- random number generation. We don't use RWS because we want StateT as
--- the outer layer so that we can easily strip off a BotState and replace
--- it with a WorldState to 'promote' Bot to World.
-type RoboContextT s = RWST Rules String s
-
 -- Here we define some aliases for typeclass constraints that are used a lot.
 type StB = MonadState BotState
 type StW = MonadState WorldState
 type Ru  = MonadReader Rules
 type Ra  = MonadRandom
-type Wr  = MonadWriter String
 type MIO = MonadIO
-
----------------------------------
---  Main Game Engine
----------------------------------
-
-data GameActions s = GameActions
-  {
-    -- | The action which is called as the game is initialising.
-    actionInit     :: Maybe (RoboContextT s IO ())
-    -- | The main action which is continually called while doing nothing else.
-  , actionMain     :: Maybe (RoboContextT s IO ())
-    -- | The action that is called when a key is pressed.
-  , actionKeyboard :: Maybe (Char -> RoboContextT s IO ())
-  }
 
 ---------------------------------
 --  World State
@@ -207,16 +164,12 @@ data WorldState = WorldState
   { _wldBullets      :: !(Many Bullet)   -- The bullets fired by robots.
   , _wldBots         :: !(Many BotState) -- The robots themselves.
   , _wldRect         :: !Rect       -- Represents the size of the arena.
-  , _wldTime0        :: !Int        -- The time when the SPS was last changed.
-  , _wldTime         :: !Int        -- The time in milliseconds since simulation started.
-  , _wldStepsDone    :: !Int        -- The number of steps done since the SPS was last changed.
-  , _wldSPS          :: !Int        -- The current number of steps per second.
-  , _wldSinceTick    :: !Int        -- The number of steps that have passed since the last tick.
-  , _wldUpdateChans  :: !(Many (Chan BotUpdate)) -- The channels along which the world sends update requests to the bots.
-     -- The channel along which the bots send update responses to the world.
-  , _wldResponseChan :: !(Maybe (Chan BotResponse))
+  , _wldSPSVar       :: !(MVar Int)
+  , _wldSPS          :: !Int -- The current steps per second
+    -- The pipe input/outputs the world uses to communicate with bots
+  , _wldBotOutputs   :: !(Many (Output BotUpdate))
+  , _wldBotInput     :: !(Maybe (Input BotResponse))
   }
-  deriving (Generic)
 
 ---------------------------------
 --  Robot State
@@ -243,8 +196,12 @@ data BotState = BotState
   }
   deriving (Generic)
 
+-- Note [ExistentialQuantification]
+-- | A wrapped BotSpec with existentially quantified state.
+data BotSpec' = forall s. BotSpec' (BotSpec s)
+
 -- | Specifies a robot's behaviour.
-data BotSpec = forall s. BotSpec -- Note [ExistentialQuantification]
+data BotSpec s = BotSpec
   {
   -- | The robot's name.
     botName         :: String

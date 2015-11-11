@@ -106,7 +106,7 @@ myOnCollideWall _ = return ()
 
 -- | This is the actual robot specification to be passed to
 -- @runWorld@.
-bullettester ∷ BotSpec
+bullettester ∷ BotSpec BulletTesterState
 bullettester = BotSpec
   { botName         = "bullettester"
   , botInitialState = emptyState

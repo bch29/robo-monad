@@ -7,10 +7,11 @@ resolver: nightly-2015-10-31
 packages:
 - '.'
 - location:
-    git: git@github.com:plredmond/GPipe-GLFW
-    commit: 153f93f4d5aa7e8566df48e8efd569ad09d93c9b
+    git: git@github.com:bch29/GPipe-GLFW
+    commit: b92040e5a4f3460a12cd7fd331db9380f358c03a
   subdirs:
   - GPipe-GLFW
+# - '../GPipe-GLFW/GPipe-GLFW'
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps: []

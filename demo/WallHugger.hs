@@ -102,7 +102,7 @@ myOnBulletHit = return ()
 myOnCollideWall ∷ WallCollisionData → WallHugger ()
 myOnCollideWall _ = return ()
 
-wallhugger ∷ BotSpec
+wallhugger ∷ BotSpec WallHuggerState
 wallhugger = BotSpec
   { botName         = "wallhugger"
   , botInitialState = emptyState

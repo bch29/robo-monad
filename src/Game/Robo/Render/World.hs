@@ -13,12 +13,13 @@ Portability : non-portable
 {-# LANGUAGE RankNTypes      #-}
 {-# LANGUAGE TypeFamilies    #-}
 
-module Game.Robo.Render.World where
+module Game.Robo.Render.World (renderWorld) where
 
 import           Control.Monad.Reader
-import           Data.IORef
 import           Graphics.GPipe
 import           Lens.Micro.Platform
+import           Pipes
+import           Control.Monad.Exception (MonadAsyncException)
 
 import           Game.Robo.Core
 import           Game.Robo.Render
@@ -55,10 +56,8 @@ bulletInfo = do
   return (pos, V2 1 0, size, bulletCol)
 
 worldShader
-  :: (ContextColorFormat c,
-      Color c Bool ~ V3 Bool,
-      Color c (S F (ColorElement c)) ~ V3 FFloat) =>
-     Rules ->  Shader os (ContextFormat c ds) RoboShaderInput ()
+  :: Rules
+  -> Shader os (ContextFormat RGBFloat ds) RoboShaderInput ()
 worldShader rules =
   do scalableShader screenSize =<< toPrimitiveStream rsiBullets
      scalableShader screenSize =<< toPrimitiveStream rsiRobotBodies
@@ -70,10 +69,9 @@ worldShader rules =
 type FiveX a = (a, a, a, a, a)
 
 initRenderWorld
-  :: MonadIO m =>
-     Rules
-     -> ContextT w os f m
-          (FiveX (Buffer os (B4 Float)))
+  :: MonadIO m
+     => Rules
+     -> ContextT w os f m (FiveX (Buffer os (B4 Float)))
 initRenderWorld rules =
   (,,,,) <$> bulletBuf  rules
          <*> chassisBuf rules
@@ -81,22 +79,14 @@ initRenderWorld rules =
          <*> radarBuf   rules
          <*> lifebarBuf rules
 
-renderWorld
-  :: (Num a, ContextColorFormat c,
-      Color c Float ~ V3 a)
+makeInfoBuffers
+  :: MonadIO m
      => Rules
-     -> IORef WorldState
-     -> FiveX (Buffer os (B4 Float))
-     -> CompiledShader os (ContextFormat c ds) RoboShaderInput
-     -- -> CompiledShader os (ContextFormat c ds) (PrimitiveArray Lines (B4 Float))
-     -> ContextT w os (ContextFormat c ds) IO ()
-renderWorld rules worldStateRef buffers shader = do
-  worldState <- liftIO (readIORef worldStateRef)
-
-  let (bullet, chassis, gun, radar, lifebar) = buffers
-
+     -> WorldState
+     -> ContextT w os f m (FiveX (Buffer os (B2 Float, B2 Float, B2 Float, B3 Float)))
+makeInfoBuffers rules worldState = do
   let bullets = worldState^.wldBullets
-      bots    = worldState^.wldBots
+      bots = worldState^.wldBots
 
       mkBuffer f xs =
         do let len = length xs
@@ -105,18 +95,42 @@ renderWorld rules worldStateRef buffers shader = do
              writeBuffer buf 0 (manyToList (fmap f xs))
            return buf
 
-  bulPosBuf     <- mkBuffer bulletInfo bullets
-  chassisPosBuf <- mkBuffer chassisInfo bots
-  gunPosBuf     <- mkBuffer gunInfo bots
-  radarPosBuf   <- mkBuffer radarInfo bots
-  lifebarPosBuf <- mkBuffer (lifebarInfo rules) bots
+  (,,,,) <$> mkBuffer bulletInfo bullets
+         <*> mkBuffer chassisInfo bots
+         <*> mkBuffer gunInfo bots
+         <*> mkBuffer radarInfo bots
+         <*> mkBuffer (lifebarInfo rules) bots
 
-  render $ do
-    clearContextColor (V3 0 0 0)
-    rsiBullets       <- makeScaledCopies LineLoop bullet  bulPosBuf
-    rsiRobotBodies   <- makeScaledCopies LineLoop chassis chassisPosBuf
-    rsiRobotGuns     <- makeScaledCopies LineLoop gun     gunPosBuf
-    rsiRobotRadars   <- makeScaledCopies LineLoop radar   radarPosBuf
-    rsiRobotLifebars <- makeScaledCopies LineLoop lifebar lifebarPosBuf
-    shader RoboShaderInput{..}
+performRendering
+  :: (MonadIO m, MonadAsyncException m)
+     => Rules
+     -> FiveX (Buffer os (B4 Float))
+     -> CompiledShader os (ContextFormat RGBFloat ds) RoboShaderInput
+     -> Consumer WorldState (ContextT w os (ContextFormat RGBFloat ds) m) ()
+performRendering rules (bullet, chassis, gun, radar, lifebar) shader = go
+  where
+    go = do lift . doRender =<< await; go
+    doRender worldState =
+      do (bulPosBuf, chassisPosBuf, gunPosBuf, radarPosBuf, lifebarPosBuf) <-
+           makeInfoBuffers rules worldState
 
+         render $ do
+           clearContextColor (V3 0 0 0)
+           rsiBullets       <- makeScaledCopies LineLoop bullet  bulPosBuf
+           rsiRobotBodies   <- makeScaledCopies LineLoop chassis chassisPosBuf
+           rsiRobotGuns     <- makeScaledCopies LineLoop gun     gunPosBuf
+           rsiRobotRadars   <- makeScaledCopies LineLoop radar   radarPosBuf
+           rsiRobotLifebars <- makeScaledCopies LineLoop lifebar lifebarPosBuf
+           shader RoboShaderInput{..}
+
+         swapContextBuffers
+
+renderWorld
+  :: (MonadIO m, MonadAsyncException m)
+    => Rules
+    -> Consumer WorldState (ContextT w os (ContextFormat RGBFloat ds) m) ()
+renderWorld rules = do
+  (buffers, shader) <-
+    lift $ (,) <$> initRenderWorld rules
+               <*> compileShader (worldShader rules)
+  performRendering rules buffers shader

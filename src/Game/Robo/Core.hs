@@ -17,30 +17,19 @@ uses all of those.
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoMonomorphismRestriction  #-}
 {-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TypeFamilies               #-}
 
 module Game.Robo.Core
   ( runRobo
-  , runRoboContext
-  , evalRoboContext
-  , iterateRoboContext
-  , gameActions
-  , startGameLoop
   , module X
   ) where
 
-import           Control.Concurrent         (threadDelay)
-import           Control.DeepSeq            (NFData (rnf))
-import           Control.Exception          (evaluate)
 import           Control.Monad.Free.Church  (iterM)
 import           Control.Monad.Random       (MonadRandom(
                                                  getRandom , getRandoms,
                                                  getRandomR, getRandomRs))
 import           Control.Monad.RWS.Strict
 import           Control.Monad.State.Strict
-import           Data.IORef                 (IORef, readIORef, writeIORef)
-import           Data.Maybe                 (fromMaybe)
 
 import           Game.Robo.Core.Lenses      as X
 import           Game.Robo.Core.Rules       as X
@@ -54,13 +43,13 @@ newtype Wrapper m a =
             MonadReader r, MonadWriter w, MonadRandom)
 
 runRobo
-  :: (Wr m, StB m, Ru m, Ra m)
+  :: (StB m, Ru m, Ra m)
      => Robo s a -> s -> m (a, s)
 runRobo (Robo robo) s =
   (runWrapper . flip runStateT s . iterM interpretRobo) robo
 
 interpretRobo
-  :: (Wr m, StB m, Ru m, Ra m)
+  :: (StB m, Ru m, Ra m)
      => RoboF s (StateT s (Wrapper m) b) -> StateT s (Wrapper m) b
 interpretRobo robo =
   case robo of
@@ -79,9 +68,10 @@ interpretRobo robo =
     RulesR f ->
       do rules <- ask
          f rules
-    LogR msg next ->
-      do tell msg
-         next
+    -- LogR msg next ->
+    --   do tell msg
+    --      next
+    LogR _ next -> next
     RandVR f ->
       do r <- getRandom
          f r
@@ -95,83 +85,3 @@ interpretRobo robo =
       do rs <- getRandomRs range
          f rs
   where lift2 = lift . Wrapper
-
--- | Runs a contextual action, returning the results, state and message log.
-runRoboContext :: Monad m => RoboContextT s m a -> Rules -> s -> m (a, s, String)
-runRoboContext = runRWST
-
--- | Evaluates a contextual action and returns just the result.
-evalRoboContext :: Monad m => RoboContextT s m a -> Rules -> s -> m a
-evalRoboContext ctx rules st = do
-  (res, _, _) <- runRoboContext ctx rules st
-  return res
-
--- | Do a contextual action until it returns Nothing, making sure to always
--- fully evaluate the state and print out the contents of the log after
--- each iteration.
-iterateRoboContext :: NFData s => a -> (a -> RoboContextT s IO (Maybe a)) -> RoboContextT s IO ()
-iterateRoboContext val1 ctxf = do
-  rules <- ask
-  state1 <- get
-
-  let loop st val = do
-        (mval, st', lg) <- runRoboContext (ctxf val) rules st
-        putStr lg
-        evaluate (rnf st')
-        case mval of
-          Just val' -> loop st' val'
-          Nothing   -> return ()
-
-  liftIO $ loop state1 val1
-
--- | Runs a game action and updates the state reference when it is done.
-runAction :: NFData s => Rules -> IORef s -> RoboContextT s IO () -> IO ()
-runAction rules ref action = do
-  st <- readIORef ref
-  (_, st', lg) <- runRoboContext action rules st
-  putStr lg
-  evaluate (rnf st')
-  writeIORef ref st'
-{-# INLINE runAction #-}
-
--- | An initial, empty set of game actions.
-gameActions :: GameActions s
-gameActions = GameActions
-  { actionInit     = Nothing
-  , actionMain     = Nothing
-  -- , actionDraw     = Nothing
-  , actionKeyboard = Nothing
-  }
-
--- | Starts the game loop given a set of rules, an initial state,
--- and a set of actions.
-startGameLoop :: Rules -- ^ The game rules.
-              -> IORef WorldState -- ^ The reference to the world state
-              -> IORef Bool -- ^ The reference which tells us when we should quit
-              -> GameActions WorldState -- ^ The set of game actions.
-              -> IO ()
-startGameLoop rules ref quitRef GameActions{..} =
-  evalRoboContext go rules =<< readIORef ref
-  where
-    maybeM = maybe (return ())
-    go = do
-      -- run the initialisation action if it exists
-      fromMaybe (return ()) actionInit
-
-      -- get the updated state
-      st <- get
-
-      -- update up our state reference
-      liftIO $ writeIORef ref st
-
-      -- let doKeyboard = fmap (\kbd _ k -> runAction rules ref (kbd k)) actionKeyboard
-      -- liftIO $ setCharCallback (renderDataWin render) doKeyboard
-
-      let doMain = maybeM (runAction rules ref) actionMain
-          mainLoop = do
-            doMain
-            threadDelay 100
-            -- performMinorGC
-            q <- readIORef quitRef
-            unless q mainLoop
-      liftIO mainLoop
